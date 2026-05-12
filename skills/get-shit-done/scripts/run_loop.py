@@ -93,6 +93,48 @@ def send_notification(event: str, task: str, body: str) -> None:
     )
 
 
+def create_handoff_report(
+    status: str,
+    task: dict[str, str],
+    summary: str,
+    verification: str,
+    needs_from_user: str,
+    prompt_path: Path,
+) -> Path | None:
+    result = subprocess.run(
+        [
+            "python3",
+            str(SKILL_PATH / "scripts" / "handoff_report.py"),
+            "--status",
+            status,
+            "--task",
+            task["title"],
+            "--summary",
+            summary,
+            "--verification",
+            verification,
+            "--needs-from-user",
+            needs_from_user,
+            "--source-id",
+            task["source_id"],
+            "--item-id",
+            task["item_id"],
+            "--location",
+            task["location"],
+            "--prompt-file",
+            str(prompt_path),
+        ],
+        cwd=str(REPO_ROOT),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(result.stderr or result.stdout or "failed to create handoff report", file=sys.stderr)
+        return None
+    return Path(result.stdout.strip())
+
+
 def build_prompt(task: dict[str, str], config_path: Path) -> str:
     current_goal_path = STATE_DIR / "current_goal.md"
 
@@ -118,7 +160,7 @@ Instructions:
    - Tell the worker not to mark the source done, close the goal, or send notifications; the watcher owns those forced closeout steps.
    - If no sub-agent mechanism exists, execute the task inline.
 6. Verify the result with the narrowest meaningful check.
-7. Return a concise final answer with status, summary, and verification. Exit 0 only when the task is done.
+7. Return a concise final answer with status, summary, verification, and needs_from_user. Exit 0 only when the task is done.
 """
 
 
@@ -186,7 +228,18 @@ def finalize_completed_task(config_path: Path, task: dict[str, str], result: sub
         text=True,
         capture_output=True,
     )
-    send_notification("done", task["title"], verification)
+    report_path = create_handoff_report(
+        "done",
+        task,
+        "agent completed",
+        verification,
+        "Nothing needed from you right now.",
+        prompt_path,
+    )
+    body = verification
+    if report_path:
+        body = f"Handoff report: {report_path}\n\n{verification}"
+    send_notification("done", task["title"], body)
 
 
 def finalize_blocked_task(config_path: Path, task: dict[str, str], result: subprocess.CompletedProcess[str], prompt_path: Path) -> None:
@@ -223,7 +276,11 @@ def finalize_blocked_task(config_path: Path, task: dict[str, str], result: subpr
             text=True,
             capture_output=True,
         )
-        send_notification("needs_human", task["title"], reason)
+        report_path = create_handoff_report("needs_human", task, reason, "", reason, prompt_path)
+        body = reason
+        if report_path:
+            body = f"Handoff report: {report_path}\n\n{reason}"
+        send_notification("needs_human", task["title"], body)
 
 
 def handle_once(config_path: Path, agent_command: str | None, repeat_seen: bool, dry_run: bool) -> int:

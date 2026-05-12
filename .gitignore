@@ -5,6 +5,7 @@ state/*.json
 state/*.jsonl
 state/*.csv
 state/prompts/
+state/reports/
 state/current_goal.md
 state/overarching_goal.md
 state/completions.md

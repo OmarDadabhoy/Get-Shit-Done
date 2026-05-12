@@ -44,6 +44,6 @@ python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.js
 
 ## Rules
 
-Uses goal mode, claims items in-progress before work, marks them done or blocked after work, emails on completion, and skips in-progress/done/blocked items to avoid collisions.
+Uses goal mode, claims items before work, marks them done or blocked, opens an HTML handoff report, emails on completion, and skips in-progress/done/blocked items.
 
 Real config files are gitignored. Commit only `config/*.example.json`.

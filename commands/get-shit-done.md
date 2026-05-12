@@ -16,6 +16,7 @@ This invocation is drain mode:
 - Never execute an unclaimed task.
 - Never mark a task done unless it was in-progress first.
 - Mark each task done or blocked in the source before moving on.
+- Create and open an HTML handoff report for every completed, blocked, or needs-human task.
 - Send a completion email after every finished task when any recipient email is configured or available in env.
 - Continue until the configured sources have no unclaimed actionable tasks.
 

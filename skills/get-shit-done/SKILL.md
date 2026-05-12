@@ -15,6 +15,7 @@ These are hard gates:
 - Do not mark a task done until it was already in-progress.
 - Do not leave a completed or blocked task without updating the source.
 - Do not skip goal mode. Codex must use native goal mode with `create_goal` when available. Claude Code must use Claude Code native goal mode. Other agents use `goal_state.py`.
+- Do not finish a task without creating and opening an HTML handoff report that states what was done, what was verified, and what the user still needs to do.
 - Do not skip completion email when `config/notifications.json` or email env vars provide a recipient.
 - Do not stop after one task when the user invoked drain/watch mode; keep going until the configured source has no unclaimed actionable items.
 
@@ -78,7 +79,13 @@ python3 skills/get-shit-done/scripts/ledger.py assigned --config config/ledger.j
 ```
 
 10. Review the worker result, then verify with the narrowest meaningful check: tests, command output, file diff, browser QA, sent/draft status, or source-specific proof.
-11. Mark the claimed item complete when the source supports it:
+11. Create and open the HTML handoff report:
+
+```bash
+python3 skills/get-shit-done/scripts/handoff_report.py --status done --task '<task>' --summary '<what happened>' --verification '<verification>' --needs-from-user '<anything needed from the user>'
+```
+
+12. Mark the claimed item complete when the source supports it:
    - Capability mode: use the same tool/skill/connector that claimed the task.
    - Local mode: run:
 
@@ -86,26 +93,30 @@ python3 skills/get-shit-done/scripts/ledger.py assigned --config config/ledger.j
 python3 skills/get-shit-done/scripts/todo_source.py mark --config config/todo_sources.json --item-id '<item-id>' --status done
 ```
 
-12. Close the active task goal:
+13. Close the active task goal:
 
 ```bash
 python3 skills/get-shit-done/scripts/goal_state.py close --status done --summary '<result>' --verification '<verification>'
 ```
 
-13. Append a short note to `state/completions.md` with the task, result, verification, and any follow-up.
-14. Append a final ledger row:
+14. Append a short note to `state/completions.md` with the task, result, verification, handoff report path, and any follow-up.
+15. Append a final ledger row:
 
 ```bash
 python3 skills/get-shit-done/scripts/ledger.py done --config config/ledger.json --task '<task>' --source-id '<source>' --item-id '<item>' --agent '<worker id>' --status done --summary '<result>'
 ```
 
-15. Send a completion email when a recipient is available through `config/notifications.json`, `TODO_SKILL_EMAIL_TO`, `GSD_EMAIL_TO`, `NOTIFY_EMAIL_TO`, `USER_EMAIL`, or `EMAIL`:
+16. Send a completion email when a recipient is available through `config/notifications.json`, `TODO_SKILL_EMAIL_TO`, `GSD_EMAIL_TO`, `NOTIFY_EMAIL_TO`, `USER_EMAIL`, or `EMAIL`:
 
 ```bash
 python3 skills/get-shit-done/scripts/notify.py done --config config/notifications.json --task '<task>' --body '<verification summary>'
 ```
 
-16. If blocked or human input is required, mark the source item blocked, close the local goal as blocked or `needs_human`, append a ledger row with `blocked` or `needs_human`, then send:
+17. If blocked or human input is required, create and open an HTML handoff report with the exact request for the user, mark the source item blocked, close the local goal as blocked or `needs_human`, append a ledger row with `blocked` or `needs_human`, then send:
+
+```bash
+python3 skills/get-shit-done/scripts/handoff_report.py --status needs_human --task '<task>' --summary '<blocker>' --needs-from-user '<exact request for the user>'
+```
 
 ```bash
 python3 skills/get-shit-done/scripts/todo_source.py mark --config config/todo_sources.json --item-id '<item-id>' --status blocked
@@ -115,7 +126,7 @@ python3 skills/get-shit-done/scripts/todo_source.py mark --config config/todo_so
 python3 skills/get-shit-done/scripts/notify.py needs_human --config config/notifications.json --task '<task>' --body '<exact blocker or question>'
 ```
 
-17. Repeat from step 3 until no actionable item remains. If a continuous watcher is running, sleep for the configured interval, then drain again.
+18. Repeat from step 3 until no actionable item remains. If a continuous watcher is running, sleep for the configured interval, then drain again.
 
 ## Task Selection
 
