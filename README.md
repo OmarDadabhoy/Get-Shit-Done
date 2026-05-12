@@ -21,6 +21,12 @@ Use $get-shit-done
 
 Claude Code can use the repo directly; it reads `CLAUDE.md` and `skills/get-shit-done/SKILL.md`.
 
+## Use Existing Tools First
+
+If Codex or Claude already has a tool for something, the skill should use that first. That includes MCP servers, app connectors, installed skills, browser tools, and authenticated CLIs like `gh` or `gcloud`.
+
+You do not need to duplicate credentials in local config for an interactive agent session. Use local JSON config only for headless scripts, polling, or agent runtimes that do not expose the needed capability.
+
 ## Add Tasks
 
 Fastest option: edit `inbox/todo.md`.
@@ -65,6 +71,8 @@ gcloud auth application-default login
 
 or set `token_env` / `token_command` in the source config.
 
+Skip this section if your agent already has Google Drive/Docs access through MCP, a connector, a skill, or an authenticated CLI and you are running the skill interactively.
+
 ## Connect Notion
 
 Create a Notion integration, share the page with it, then:
@@ -89,6 +97,8 @@ Edit `config/todo_sources.json`:
 Notion supports unchecked `to_do` blocks, `- [ ] Task`, and `TODO: Task`.
 
 When work starts, Google Docs/Notion tasks are marked in-progress so other agents skip them. Completion changes them to done; blocked work is marked blocked.
+
+Skip this section if your agent already has Notion access through MCP, a connector, a skill, or an authenticated CLI and you are running the skill interactively.
 
 ## Email Me
 
