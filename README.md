@@ -88,6 +88,8 @@ Edit `config/todo_sources.json`:
 
 Notion supports unchecked `to_do` blocks, `- [ ] Task`, and `TODO: Task`.
 
+When work starts, Google Docs/Notion tasks are marked in-progress so other agents skip them. Completion changes them to done; blocked work is marked blocked.
+
 ## Email Me
 
 Edit `config/notifications.json` and set `enabled` to `true`.

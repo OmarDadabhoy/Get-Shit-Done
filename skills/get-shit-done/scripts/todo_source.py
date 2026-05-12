@@ -19,9 +19,14 @@ from typing import Any
 
 CHECKBOX_RE = re.compile(r"^(?P<indent>\s*)(?P<bullet>[-*]\s+)\[(?P<mark>[ xX>!~-])\]\s+(?P<title>.+?)\s*$")
 TODO_RE = re.compile(r"^(?P<indent>\s*)(?:(?P<bullet>[-*]\s+))?TODO[:\s]+(?P<title>.+?)\s*$", re.IGNORECASE)
+STATUS_RE = re.compile(r"^(?P<indent>\s*)(?:(?P<bullet>[-*]\s+))?(?P<keyword>TODO|WIP|DONE|BLKD)[:\s]+(?P<title>.+?)\s*$", re.IGNORECASE)
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 GOOGLE_DOC_ID_RE = re.compile(r"/document/d/([a-zA-Z0-9_-]+)")
 NOTION_PAGE_ID_RE = re.compile(r"([a-fA-F0-9]{32}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})")
+
+
+CHECKBOX_STATUS = {" ": "todo", ">": "in-progress", "!": "blocked", "x": "done", "X": "done"}
+KEYWORD_STATUS = {"TODO": "todo", "WIP": "in-progress", "DONE": "done", "BLKD": "blocked"}
 
 
 def load_config(config_path: Path) -> dict[str, Any]:
@@ -230,7 +235,11 @@ def paragraph_text(paragraph: dict[str, Any]) -> str:
     return "".join(parts)
 
 
-def google_doc_paragraph_tasks(source: dict[str, Any], document: dict[str, Any]) -> list[dict[str, Any]]:
+def google_doc_paragraph_tasks(
+    source: dict[str, Any],
+    document: dict[str, Any],
+    include_claimed: bool = False,
+) -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
     source_id = source["id"]
     doc_id = google_doc_id(source)
@@ -252,8 +261,11 @@ def google_doc_paragraph_tasks(source: dict[str, Any], document: dict[str, Any])
         checkbox = CHECKBOX_RE.match(line)
         if checkbox:
             mark = checkbox.group("mark")
-            if mark == " ":
+            task_status = CHECKBOX_STATUS.get(mark, "unknown")
+            if task_status == "todo" or include_claimed:
                 marker_offset = line.find("[ ]")
+                if marker_offset < 0:
+                    marker_offset = line.find(f"[{mark}]")
                 tasks.append(
                     item_with_writeback(
                         source_id,
@@ -268,30 +280,36 @@ def google_doc_paragraph_tasks(source: dict[str, Any], document: dict[str, Any])
                             "marker_start": start_index + marker_offset,
                             "marker_end": start_index + marker_offset + 3,
                             "kind": "checkbox",
+                            "status": task_status,
                         },
                     )
                 )
             continue
 
-        todo = TODO_RE.match(line)
-        if todo:
-            todo_match = re.search(r"TODO", line, re.IGNORECASE)
-            if not todo_match:
+        status_line = STATUS_RE.match(line)
+        if status_line:
+            keyword = status_line.group("keyword").upper()
+            task_status = KEYWORD_STATUS.get(keyword, "unknown")
+            if task_status != "todo" and not include_claimed:
+                continue
+            keyword_match = re.search(r"\b(TODO|WIP|DONE|BLKD)\b", line, re.IGNORECASE)
+            if not keyword_match:
                 continue
             tasks.append(
                 item_with_writeback(
                     source_id,
                     f"{source_id}:paragraph:{start_index}",
-                    todo.group("title"),
+                    status_line.group("title"),
                     "google_docs",
                     f"{location}:{start_index}",
                     {
                         "document_id": doc_id,
                         "paragraph_start": start_index,
                         "paragraph_end": end_index,
-                        "marker_start": start_index + todo_match.start(),
-                        "marker_end": start_index + todo_match.end(),
+                        "marker_start": start_index + keyword_match.start(),
+                        "marker_end": start_index + keyword_match.end(),
                         "kind": "todo",
+                        "status": task_status,
                     },
                 )
             )
@@ -332,13 +350,13 @@ def read_google_docs(source: dict[str, Any]) -> list[dict[str, Any]]:
 
 def find_google_doc_task_for_item(source: dict[str, Any], item_id: str, token: str) -> dict[str, Any]:
     document = google_document(source, token)
-    for task in google_doc_paragraph_tasks(source, document):
+    for task in google_doc_paragraph_tasks(source, document, include_claimed=True):
         if task["item_id"] == item_id:
             return task
 
     if ":line:" in item_id:
         line_number = int(item_id.rsplit(":", 1)[1])
-        tasks = google_doc_paragraph_tasks(source, document)
+        tasks = google_doc_paragraph_tasks(source, document, include_claimed=True)
         if 1 <= line_number <= len(tasks):
             return tasks[line_number - 1]
 
@@ -356,15 +374,12 @@ def google_docs_batch_update(source: dict[str, Any], token: str, requests: list[
 
 
 def mark_google_docs_item(config_path: Path, source: dict[str, Any], item_id: str, status: str) -> dict[str, Any]:
-    if status != "done":
-        raise SystemExit("Google Docs write-back currently supports only --status done.")
-
     token = require_bearer_token(source)
     task = find_google_doc_task_for_item(source, item_id, token)
     writeback = task.get("writeback", {})
     mode = source.get("writeback", "mark_done")
 
-    if mode == "delete":
+    if mode == "delete" and status == "done":
         paragraph_start = int(writeback["paragraph_start"])
         paragraph_end = int(writeback["paragraph_end"])
         # Leave the paragraph break in place. Deleting the final newline can be invalid in Docs.
@@ -378,10 +393,15 @@ def mark_google_docs_item(config_path: Path, source: dict[str, Any], item_id: st
                 }
             }
         ]
-    elif mode in {"mark_done", "mark-done", True}:
+    elif mode in {"mark_done", "mark-done", True, "delete"}:
         marker_start = int(writeback["marker_start"])
         marker_end = int(writeback["marker_end"])
-        replacement = "[x]" if writeback.get("kind") == "checkbox" else "DONE"
+        if writeback.get("kind") == "checkbox":
+            replacement = {"in-progress": "[>]", "blocked": "[!]", "done": "[x]"}.get(status)
+        else:
+            replacement = {"in-progress": "WIP ", "blocked": "BLKD", "done": "DONE"}.get(status)
+        if not replacement:
+            raise SystemExit(f"Unsupported Google Docs status: {status}")
         requests = [
             {"deleteContentRange": {"range": {"startIndex": marker_start, "endIndex": marker_end}}},
             {"insertText": {"location": {"index": marker_start}, "text": replacement}},
@@ -485,7 +505,11 @@ def notion_children(source: dict[str, Any], token: str, block_id: str) -> list[d
         cursor = response.get("next_cursor")
 
 
-def notion_block_tasks(source: dict[str, Any], blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def notion_block_tasks(
+    source: dict[str, Any],
+    blocks: list[dict[str, Any]],
+    include_claimed: bool = False,
+) -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
     source_id = source["id"]
     page_ref = source.get("url") or f"Notion:{notion_page_id(source)}"
@@ -499,12 +523,24 @@ def notion_block_tasks(source: dict[str, Any], blocks: list[dict[str, Any]]) -> 
         if block_type == "to_do":
             payload = block.get("to_do", {})
             title = rich_text_plain(payload.get("rich_text", [])).strip()
-            if title and not payload.get("checked", False):
+            prefixed_status = None
+            clean_title = title
+            if title.startswith("[>] "):
+                prefixed_status = "in-progress"
+                clean_title = title[4:]
+            elif title.startswith("[!] "):
+                prefixed_status = "blocked"
+                clean_title = title[4:]
+            elif title.startswith("[x] "):
+                prefixed_status = "done"
+                clean_title = title[4:]
+            task_status = "done" if payload.get("checked", False) else (prefixed_status or "todo")
+            if clean_title and (task_status == "todo" or include_claimed):
                 tasks.append(
                     item_with_writeback(
                         source_id,
                         f"{source_id}:block:{block_id}",
-                        title,
+                        clean_title,
                         "notion_page",
                         f"{page_ref}:{block_id}",
                         {
@@ -512,6 +548,7 @@ def notion_block_tasks(source: dict[str, Any], blocks: list[dict[str, Any]]) -> 
                             "block_id": block_id,
                             "block_type": block_type,
                             "mode": source.get("writeback", "mark_done"),
+                            "status": task_status,
                         },
                     )
                 )
@@ -522,8 +559,13 @@ def notion_block_tasks(source: dict[str, Any], blocks: list[dict[str, Any]]) -> 
 
         line = notion_block_text(block).strip()
         checkbox = CHECKBOX_RE.match(line)
-        if checkbox and checkbox.group("mark") == " ":
+        if checkbox:
+            task_status = CHECKBOX_STATUS.get(checkbox.group("mark"), "unknown")
+            if task_status != "todo" and not include_claimed:
+                continue
             marker_offset = line.find("[ ]")
+            if marker_offset < 0:
+                marker_offset = line.find(f"[{checkbox.group('mark')}]")
             tasks.append(
                 item_with_writeback(
                     source_id,
@@ -540,34 +582,41 @@ def notion_block_tasks(source: dict[str, Any], blocks: list[dict[str, Any]]) -> 
                         "marker_start": marker_offset,
                         "marker_end": marker_offset + 3,
                         "mode": source.get("writeback", "mark_done"),
+                        "status": task_status,
                     },
                 )
             )
             continue
 
-        todo = TODO_RE.match(line)
-        if todo:
-            todo_match = re.search(r"TODO", line, re.IGNORECASE)
-            if todo_match:
-                tasks.append(
-                    item_with_writeback(
-                        source_id,
-                        f"{source_id}:block:{block_id}",
-                        todo.group("title"),
-                        "notion_page",
-                        f"{page_ref}:{block_id}",
-                        {
-                            "type": "notion_page",
-                            "block_id": block_id,
-                            "block_type": block_type,
-                            "kind": "todo",
-                            "text": line,
-                            "marker_start": todo_match.start(),
-                            "marker_end": todo_match.end(),
-                            "mode": source.get("writeback", "mark_done"),
-                        },
-                    )
+        status_line = STATUS_RE.match(line)
+        if status_line:
+            keyword = status_line.group("keyword").upper()
+            task_status = KEYWORD_STATUS.get(keyword, "unknown")
+            if task_status != "todo" and not include_claimed:
+                continue
+            keyword_match = re.search(r"\b(TODO|WIP|DONE|BLKD)\b", line, re.IGNORECASE)
+            if not keyword_match:
+                continue
+            tasks.append(
+                item_with_writeback(
+                    source_id,
+                    f"{source_id}:block:{block_id}",
+                    status_line.group("title"),
+                    "notion_page",
+                    f"{page_ref}:{block_id}",
+                    {
+                        "type": "notion_page",
+                        "block_id": block_id,
+                        "block_type": block_type,
+                        "kind": "todo",
+                        "text": line,
+                        "marker_start": keyword_match.start(),
+                        "marker_end": keyword_match.end(),
+                        "mode": source.get("writeback", "mark_done"),
+                        "status": task_status,
+                    },
                 )
+            )
 
     return tasks
 
@@ -610,9 +659,6 @@ def update_notion_text_block(
 
 
 def mark_notion_item(config_path: Path, source: dict[str, Any], item_id: str, status: str) -> dict[str, Any]:
-    if status != "done":
-        raise SystemExit("Notion write-back currently supports only --status done.")
-
     parts = item_id.split(":")
     if len(parts) != 3 or parts[1] != "block":
         raise SystemExit(f"Unsupported Notion item id: {item_id}")
@@ -621,26 +667,36 @@ def mark_notion_item(config_path: Path, source: dict[str, Any], item_id: str, st
     block_id = parts[2]
     mode = source.get("writeback", "mark_done")
 
-    if mode == "delete":
+    if mode == "delete" and status == "done":
         notion_request("DELETE", f"https://api.notion.com/v1/blocks/{block_id}", token, source)
     else:
         block = notion_request("GET", f"https://api.notion.com/v1/blocks/{block_id}", token, source)
         block_type = block.get("type")
         if block_type == "to_do":
-            notion_request(
-                "PATCH",
-                f"https://api.notion.com/v1/blocks/{block_id}",
-                token,
-                source,
-                {"to_do": {"checked": True}},
-            )
+            current = notion_block_text(block).strip()
+            clean = re.sub(r"^\[[>!xX]\]\s+", "", current)
+            if status == "done":
+                payload = {"to_do": {"checked": True, "rich_text": notion_rich_text(clean)}}
+            elif status == "in-progress":
+                payload = {"to_do": {"checked": False, "rich_text": notion_rich_text(f"[>] {clean}")}}
+            elif status == "blocked":
+                payload = {"to_do": {"checked": False, "rich_text": notion_rich_text(f"[!] {clean}")}}
+            else:
+                raise SystemExit(f"Unsupported Notion status: {status}")
+            notion_request("PATCH", f"https://api.notion.com/v1/blocks/{block_id}", token, source, payload)
         elif block_type in {"paragraph", "bulleted_list_item", "numbered_list_item"}:
             line = notion_block_text(block)
             checkbox = CHECKBOX_RE.match(line.strip())
-            if checkbox and checkbox.group("mark") == " ":
-                replacement = line.replace("[ ]", "[x]", 1)
+            if checkbox:
+                marker = {"in-progress": "[>]", "blocked": "[!]", "done": "[x]"}.get(status)
+                if not marker:
+                    raise SystemExit(f"Unsupported Notion status: {status}")
+                replacement = re.sub(r"\[[ xX>!~-]\]", marker, line, count=1)
             else:
-                replacement = re.sub(r"\bTODO\b", "DONE", line, count=1, flags=re.IGNORECASE)
+                marker = {"in-progress": "WIP ", "blocked": "BLKD", "done": "DONE"}.get(status)
+                if not marker:
+                    raise SystemExit(f"Unsupported Notion status: {status}")
+                replacement = re.sub(r"\b(TODO|WIP|DONE|BLKD)\b", marker, line, count=1, flags=re.IGNORECASE)
             update_notion_text_block(source, token, block_id, block_type, replacement)
         else:
             raise SystemExit(f"Unsupported Notion block type for write-back: {block_type}")
