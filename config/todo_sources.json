@@ -17,7 +17,17 @@
       "type": "google_docs",
       "enabled": false,
       "url": "https://docs.google.com/document/d/YOUR_DOCUMENT_ID/edit",
-      "auth": "public"
+      "auth": "public",
+      "writeback": "mark_done"
+    },
+    {
+      "id": "notion-page",
+      "type": "notion_page",
+      "enabled": false,
+      "url": "https://www.notion.so/YOUR_PAGE_ID",
+      "token_env": "NOTION_TOKEN",
+      "writeback": "mark_done",
+      "recursive": false
     }
   ]
 }

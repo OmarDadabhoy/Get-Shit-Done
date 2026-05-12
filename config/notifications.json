@@ -1,0 +1,15 @@
+{
+  "enabled": false,
+  "method": "command",
+  "to": ["you@example.com"],
+  "subject_prefix": "[Get Shit Done]",
+  "command": "mail -s {subject} {to} < {body_file}",
+  "smtp": {
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "starttls": true,
+    "from": "you@example.com",
+    "username_env": "SMTP_USERNAME",
+    "password_env": "SMTP_PASSWORD"
+  }
+}

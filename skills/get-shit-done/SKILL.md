@@ -1,6 +1,6 @@
 ---
 name: get-shit-done
-description: Work through the user's todo inbox one item at a time. Use when the user invokes "get shit done", "$get-shit-done", asks Codex or Claude Code to take the next task from a todo list, Google Doc, Apple Notes note, exported Messages/iMessage note, or configured inbox, or wants an agent to keep polling for new tasks and execute them with verification.
+description: Work through the user's todo inbox one item at a time. Use when the user invokes "get shit done", "$get-shit-done", asks Codex or Claude Code to take the next task from a todo list, Google Doc, Notion page, Apple Notes note, exported Messages/iMessage note, or configured inbox, or wants an agent to keep polling for new tasks and execute them with verification.
 ---
 
 # Get Shit Done
@@ -44,7 +44,19 @@ python3 skills/get-shit-done/scripts/todo_source.py mark --config config/todo_so
 ```
 
 8. Append a short note to `state/completions.md` with the task, result, verification, and any follow-up.
-9. If a continuous watcher is running, let it poll again after the configured interval.
+9. Send a notification if `config/notifications.json` is enabled:
+
+```bash
+python3 skills/get-shit-done/scripts/notify.py done --config config/notifications.json --task '<task>' --body '<verification summary>'
+```
+
+10. If blocked or human input is required, send:
+
+```bash
+python3 skills/get-shit-done/scripts/notify.py needs_human --config config/notifications.json --task '<task>' --body '<exact blocker or question>'
+```
+
+11. If a continuous watcher is running, let it poll again after the configured interval.
 
 ## Task Selection
 
@@ -67,4 +79,4 @@ If a task requires credentials, paid services, 2FA, or production access that is
 
 Use `references/sources.md` for source setup details. The default source is a local Markdown file at `inbox/todo.md`.
 
-Google Docs and Apple Notes support are opt-in read sources. Google Docs uses plain-text export and may require a public/published doc or a configured access token. Apple Notes uses macOS AppleScript, so macOS may prompt for automation permission. Direct iMessage database access is not enabled by default; prefer exporting or mirroring iMessage todos into the local Markdown inbox unless the user explicitly configures a safer source adapter.
+Google Docs, Notion, and Apple Notes support are opt-in sources. Google Docs and Notion can mark completed tasks when configured with write auth and `writeback: "mark_done"` or clear/archive task content with `writeback: "delete"`. Apple Notes uses macOS AppleScript, so macOS may prompt for automation permission. Direct iMessage database access is not enabled by default; prefer exporting or mirroring iMessage todos into the local Markdown inbox unless the user explicitly configures a safer source adapter.

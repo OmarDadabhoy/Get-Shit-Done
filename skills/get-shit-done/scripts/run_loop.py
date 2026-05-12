@@ -60,6 +60,10 @@ Instructions:
 5. If the source supports completion, mark it done with:
    {completion_command}
 6. Append a short result and verification note to {completions_path}.
+7. If notifications are enabled, send completion email:
+   python3 {SKILL_PATH / 'scripts' / 'notify.py'} done --config {REPO_ROOT / 'config' / 'notifications.json'} --task {task['title']!r} --body '<verification summary>'
+8. If blocked or waiting for input, send needs-human email:
+   python3 {SKILL_PATH / 'scripts' / 'notify.py'} needs_human --config {REPO_ROOT / 'config' / 'notifications.json'} --task {task['title']!r} --body '<exact blocker or question>'
 """
 
 
