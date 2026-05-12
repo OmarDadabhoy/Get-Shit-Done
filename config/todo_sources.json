@@ -1,0 +1,23 @@
+{
+  "sources": [
+    {
+      "id": "local-todo",
+      "type": "text_file",
+      "enabled": true,
+      "path": "../inbox/todo.md"
+    },
+    {
+      "id": "apple-notes",
+      "type": "apple_notes",
+      "enabled": false,
+      "title": "Codex Todo"
+    },
+    {
+      "id": "google-docs",
+      "type": "google_docs",
+      "enabled": false,
+      "url": "https://docs.google.com/document/d/YOUR_DOCUMENT_ID/edit",
+      "auth": "public"
+    }
+  ]
+}
