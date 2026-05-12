@@ -7,6 +7,9 @@ Codex/Claude skill that pulls the next task from a todo source, makes it the act
 ```bash
 git clone git@github.com:OmarDadabhoy/Get-Shit-Done.git
 cd Get-Shit-Done
+cp config/todo_sources.example.json config/todo_sources.json
+cp config/notifications.example.json config/notifications.json
+cp config/ledger.example.json config/ledger.json
 scripts/install-codex-symlink.sh
 ```
 
@@ -102,6 +105,34 @@ Simple local mail example:
 
 SMTP is also supported with `SMTP_USERNAME` and `SMTP_PASSWORD`.
 
+## Track Worker State
+
+Edit `config/ledger.json`.
+
+Local CSV:
+
+```json
+{
+  "enabled": true,
+  "type": "local_csv",
+  "path": "state/task_ledger.csv"
+}
+```
+
+Google Sheet:
+
+```json
+{
+  "enabled": true,
+  "type": "google_sheets",
+  "spreadsheet_id": "YOUR_GOOGLE_SHEET_ID",
+  "range": "AgentRuns!A:J",
+  "auth": "gcloud"
+}
+```
+
+The ledger records queued/assigned/running/done/blocked state for each worker or inline run.
+
 ## Polling
 
 Check once:
@@ -129,3 +160,5 @@ python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.js
 python3 -m py_compile skills/get-shit-done/scripts/*.py
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/get-shit-done
 ```
+
+Real config files are gitignored. Commit only `config/*.example.json`.

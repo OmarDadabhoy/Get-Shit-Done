@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "type": "local_csv",
+  "path": "state/task_ledger.csv",
+  "spreadsheet_id": "YOUR_GOOGLE_SHEET_ID",
+  "range": "AgentRuns!A:J",
+  "auth": "gcloud"
+}

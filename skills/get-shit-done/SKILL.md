@@ -7,7 +7,7 @@ description: Work through the user's todo inbox one item at a time. Use when the
 
 ## Operating Contract
 
-Pick the next actionable todo, make it the active objective, execute it end to end, verify the result, and leave a concise audit trail. Do not batch unrelated todos unless the user explicitly asks.
+Pick the next actionable todo, make it the active objective, delegate execution to one worker/sub-agent when available, verify the result, and leave a concise audit trail. Do not batch unrelated todos unless the user explicitly asks.
 
 This skill is agent-framework agnostic. In Codex, activate goal mode for every task when goal tools are available. In Claude Code or other agents, emulate the active goal with `skills/get-shit-done/scripts/goal_state.py`.
 
@@ -35,34 +35,48 @@ The watcher only prepares prompts unless `TODO_SKILL_AGENT_CMD` or `--agent-comm
    - Codex: call `create_goal` with the todo as the concrete objective when goal tools are available and no active goal already exists.
    - Claude Code or other agents: run `goal_state.py activate` with the todo, source id, item id, and location.
 4. Clarify only when the task cannot be executed safely or meaningfully without more input.
-5. Execute the task using the normal tools available in the current agent environment.
-6. Verify with the narrowest meaningful check: tests, command output, file diff, browser QA, sent/draft status, or source-specific proof.
-7. Mark the item complete when the source supports it:
+5. Assign execution to a worker:
+   - Codex: spawn one worker sub-agent for the task when `spawn_agent` is available. Tell the worker it is not alone in the codebase and must not mark the source done or send notifications.
+   - Other agents: invoke the configured watcher agent command or perform the task inline if no delegation mechanism exists.
+6. Track the assignment in the ledger when `config/ledger.json` is enabled:
+
+```bash
+python3 skills/get-shit-done/scripts/ledger.py assigned --config config/ledger.json --task '<task>' --source-id '<source>' --item-id '<item>' --agent '<worker id>' --status running
+```
+
+7. Review the worker result, then verify with the narrowest meaningful check: tests, command output, file diff, browser QA, sent/draft status, or source-specific proof.
+8. Mark the item complete when the source supports it:
 
 ```bash
 python3 skills/get-shit-done/scripts/todo_source.py mark --config config/todo_sources.json --item-id '<item-id>' --status done
 ```
 
-8. Close the active goal:
+9. Close the active goal:
 
 ```bash
 python3 skills/get-shit-done/scripts/goal_state.py close --status done --summary '<result>' --verification '<verification>'
 ```
 
-9. Append a short note to `state/completions.md` with the task, result, verification, and any follow-up.
-10. Send a notification if `config/notifications.json` is enabled:
+10. Append a short note to `state/completions.md` with the task, result, verification, and any follow-up.
+11. Append a final ledger row:
+
+```bash
+python3 skills/get-shit-done/scripts/ledger.py done --config config/ledger.json --task '<task>' --source-id '<source>' --item-id '<item>' --agent '<worker id>' --status done --summary '<result>'
+```
+
+12. Send a notification if `config/notifications.json` is enabled:
 
 ```bash
 python3 skills/get-shit-done/scripts/notify.py done --config config/notifications.json --task '<task>' --body '<verification summary>'
 ```
 
-11. If blocked or human input is required, first close the local goal as blocked or `needs_human`, then send:
+13. If blocked or human input is required, first close the local goal as blocked or `needs_human`, append a ledger row with `blocked` or `needs_human`, then send:
 
 ```bash
 python3 skills/get-shit-done/scripts/notify.py needs_human --config config/notifications.json --task '<task>' --body '<exact blocker or question>'
 ```
 
-12. If a continuous watcher is running, let it poll again after the configured interval.
+14. If a continuous watcher is running, let it poll again after the configured interval.
 
 ## Task Selection
 

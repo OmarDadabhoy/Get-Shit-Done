@@ -1,6 +1,9 @@
 .DS_Store
+config/*.json
+!config/*.example.json
 state/*.json
 state/*.jsonl
+state/*.csv
 state/prompts/
 state/current_goal.md
 state/completions.md
