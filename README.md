@@ -19,9 +19,18 @@ Run it with:
 /get-shit-done
 ```
 
+Or point it at a source your current Codex/Claude session can already access:
+
+```text
+/get-shit-done https://www.notion.so/...
+/get-shit-done https://docs.google.com/document/d/...
+```
+
 ## Required Setup
 
-Edit `config/todo_sources.json` and enable your source.
+For the slash command, Codex/Claude will try existing MCP/app connectors, installed skills, browser tools, and authenticated CLIs first.
+
+For repeatable polling from the local scripts, edit `config/todo_sources.json` and enable your source.
 
 Google Docs:
 
