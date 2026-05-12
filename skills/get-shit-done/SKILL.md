@@ -14,11 +14,11 @@ These are hard gates:
 - Do not execute a task until the source item is marked in-progress.
 - Do not mark a task done until it was already in-progress.
 - Do not leave a completed or blocked task without updating the source.
-- Do not skip goal mode. Codex must call `create_goal` when available; other agents must use `goal_state.py`.
+- Do not skip goal mode. Codex must use native goal mode with `create_goal` when available. Claude Code must use Claude Code native goal mode. Other agents use `goal_state.py`.
 - Do not skip completion email when `config/notifications.json` or email env vars provide a recipient.
 - Do not stop after one task when the user invoked drain/watch mode; keep going until the configured source has no unclaimed actionable items.
 
-This skill is agent-framework agnostic. In Codex, use goal mode for the overarching drain objective and for every task when goal tools are available. In Claude Code or other agents, emulate goal mode with `skills/get-shit-done/scripts/goal_state.py` and `state/overarching_goal.md`.
+This skill is agent-framework agnostic. In Codex and Claude Code, use native goal mode for the overarching drain objective and for every task. For other agents, emulate goal mode with `skills/get-shit-done/scripts/goal_state.py` and `state/overarching_goal.md`.
 
 ## Quick Start
 
@@ -48,6 +48,7 @@ The watcher requires `TODO_SKILL_AGENT_CMD` or `--agent-command` for live execut
    - Local JSON config is for headless scripts, polling, or agent runtimes that do not expose the needed capability.
 2. Activate the overarching drain goal:
    - Codex: call `create_goal` for "Clear all actionable tasks from the configured todo sources" when goal tools are available and no active goal exists.
+   - Claude Code: use Claude Code native goal mode for the same overarching objective.
    - Other agents: write or use `state/overarching_goal.md`.
 3. Load the next incomplete todo:
    - Capability mode: read the configured or user-mentioned page/doc/sheet/inbox with the best existing runtime capability and skip items already marked in-progress/done/blocked.
@@ -64,7 +65,8 @@ python3 skills/get-shit-done/scripts/todo_source.py claim --config config/todo_s
    If the claim fails because the item is already in-progress/done/blocked, skip it and pick the next item.
 6. Turn the claimed todo into the active task goal before execution:
    - Codex: call `create_goal` with the todo as the concrete objective when goal tools are available and no active goal already exists.
-   - Claude Code or other agents: run `goal_state.py activate` with the todo, source id, item id, and location.
+   - Claude Code: use Claude Code native goal mode with the claimed todo as the active objective.
+   - Other agents: run `goal_state.py activate` with the todo, source id, item id, and location.
 7. Clarify only when the task cannot be executed safely or meaningfully without more input.
 8. Assign execution to a worker:
    - Codex: spawn one worker sub-agent for the task when `spawn_agent` is available. Tell the worker it is not alone in the codebase and must not mark the source done or send notifications.

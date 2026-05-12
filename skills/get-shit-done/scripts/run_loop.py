@@ -110,7 +110,8 @@ Instructions:
 2. This source item has already been claimed in-progress by the watcher. Do not start a different task until this one is done, blocked, or needs human input.
 3. Activate goal mode before doing any work:
    - In Codex, call create_goal with this exact task if goal tools are available.
-   - In Claude Code or other agents, treat {current_goal_path} as the active fallback goal.
+   - In Claude Code, use Claude Code native goal mode with this exact task.
+   - In other agents, treat {current_goal_path} as the active fallback goal.
 4. Load the local operating context for the workspace before task work: AGENTS.md, CLAUDE.md, SKILL.md, user-level agent instructions, installed skills, MCP/app connectors, and authenticated CLIs. Use those environment tools first unless they conflict with the claim-first/done-or-blocked protocol.
 5. Delegate execution to a worker/sub-agent when the environment supports it:
    - In Codex, spawn exactly one worker sub-agent for this task if spawn_agent is available.
