@@ -6,6 +6,7 @@ state/*.jsonl
 state/*.csv
 state/prompts/
 state/current_goal.md
+state/overarching_goal.md
 state/completions.md
 __pycache__/
 *.pyc

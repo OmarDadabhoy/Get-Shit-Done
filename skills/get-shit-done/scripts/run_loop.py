@@ -11,13 +11,15 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from todo_source import collect_items
+from todo_source import collect_items, mark_item
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SKILL_PATH = REPO_ROOT / "skills" / "get-shit-done"
 STATE_DIR = REPO_ROOT / "state"
 ATTEMPTS_PATH = STATE_DIR / "attempts.json"
+OVERARCHING_GOAL_JSON = STATE_DIR / "overarching_goal.json"
+OVERARCHING_GOAL_MD = STATE_DIR / "overarching_goal.md"
 
 
 def now() -> str:
@@ -35,27 +37,64 @@ def write_attempts(attempts: dict[str, dict[str, str]]) -> None:
     ATTEMPTS_PATH.write_text(json.dumps(attempts, indent=2) + "\n", encoding="utf-8")
 
 
+def write_overarching_goal(status: str, summary: str = "") -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "status": status,
+        "task": "Clear all actionable tasks from the configured todo sources",
+        "summary": summary,
+        "updated_at": now(),
+    }
+    OVERARCHING_GOAL_JSON.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    OVERARCHING_GOAL_MD.write_text(
+        "\n".join(
+            [
+                "# Overarching Goal",
+                "",
+                f"Status: {status}",
+                "Task: Clear all actionable tasks from the configured todo sources",
+                f"Updated: {payload['updated_at']}",
+                "",
+                summary,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def run_goal_state(*args: str) -> None:
+    subprocess.run(
+        ["python3", str(SKILL_PATH / "scripts" / "goal_state.py"), *args],
+        cwd=str(REPO_ROOT),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+
+def send_notification(event: str, task: str, body: str) -> None:
+    subprocess.run(
+        [
+            "python3",
+            str(SKILL_PATH / "scripts" / "notify.py"),
+            event,
+            "--config",
+            str(REPO_ROOT / "config" / "notifications.json"),
+            "--task",
+            task,
+            "--body",
+            body,
+        ],
+        cwd=str(REPO_ROOT),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+
 def build_prompt(task: dict[str, str], config_path: Path) -> str:
-    completion_command = (
-        f"python3 {SKILL_PATH / 'scripts' / 'todo_source.py'} mark "
-        f"--config {config_path} --item-id {task['item_id']!r} --status done"
-    )
-    activate_goal_command = (
-        f"python3 {SKILL_PATH / 'scripts' / 'goal_state.py'} activate "
-        f"--task {task['title']!r} --source-id {task['source_id']!r} "
-        f"--item-id {task['item_id']!r} --location {task['location']!r}"
-    )
-    close_goal_command = (
-        f"python3 {SKILL_PATH / 'scripts' / 'goal_state.py'} close "
-        "--status done --summary '<result>' --verification '<verification summary>'"
-    )
-    blocked_goal_command = (
-        f"python3 {SKILL_PATH / 'scripts' / 'goal_state.py'} close "
-        "--status needs_human --summary '<blocker>' --verification ''"
-    )
     current_goal_path = STATE_DIR / "current_goal.md"
-    completions_path = STATE_DIR / "completions.md"
-    ledger_config = REPO_ROOT / "config" / "ledger.json"
 
     return f"""Use $get-shit-done.
 
@@ -68,35 +107,17 @@ Source:
 
 Instructions:
 1. Read {SKILL_PATH / 'SKILL.md'} if the skill is not already loaded.
-2. Activate goal mode before doing any work:
+2. This source item has already been claimed in-progress by the watcher. Do not start a different task until this one is done, blocked, or needs human input.
+3. Activate goal mode before doing any work:
    - In Codex, call create_goal with this exact task if goal tools are available.
-   - In Claude Code or other agents, run:
-     {activate_goal_command}
-   This writes the fallback goal file at {current_goal_path}.
-3. Delegate execution to a worker/sub-agent when the environment supports it:
+   - In Claude Code or other agents, treat {current_goal_path} as the active fallback goal.
+4. Load the local operating context for the workspace before task work: AGENTS.md, CLAUDE.md, SKILL.md, user-level agent instructions, installed skills, MCP/app connectors, and authenticated CLIs. Use those environment tools first unless they conflict with the claim-first/done-or-blocked protocol.
+5. Delegate execution to a worker/sub-agent when the environment supports it:
    - In Codex, spawn exactly one worker sub-agent for this task if spawn_agent is available.
-   - Tell the worker not to mark the source done, close the goal, or send notifications; the parent orchestrator owns those steps.
+   - Tell the worker not to mark the source done, close the goal, or send notifications; the watcher owns those forced closeout steps.
    - If no sub-agent mechanism exists, execute the task inline.
-4. Track assignment and worker state in the ledger when enabled:
-   python3 {SKILL_PATH / 'scripts' / 'ledger.py'} assigned --config {ledger_config} --task {task['title']!r} --source-id {task['source_id']!r} --item-id {task['item_id']!r} --agent '<worker id or inline>' --status running --prompt-file '<worker prompt or run ref>'
-5. Verify the worker result.
-6. If the source supports completion, mark it done with:
-   {completion_command}
-7. Close the active goal after completion:
-   - In Codex, mark the goal complete if goal tools are available.
-   - In every agent, run:
-     {close_goal_command}
-8. Append a short result and verification note to {completions_path}.
-9. Append a completion row to the ledger:
-   python3 {SKILL_PATH / 'scripts' / 'ledger.py'} done --config {ledger_config} --task {task['title']!r} --source-id {task['source_id']!r} --item-id {task['item_id']!r} --agent '<worker id or inline>' --status done --summary '<result>' --prompt-file '<worker prompt or run ref>'
-10. If notifications are enabled, send completion email:
-   python3 {SKILL_PATH / 'scripts' / 'notify.py'} done --config {REPO_ROOT / 'config' / 'notifications.json'} --task {task['title']!r} --body '<verification summary>'
-11. If blocked or waiting for input, run this goal closeout first:
-   {blocked_goal_command}
-12. Append a blocked row to the ledger:
-   python3 {SKILL_PATH / 'scripts' / 'ledger.py'} needs_human --config {ledger_config} --task {task['title']!r} --source-id {task['source_id']!r} --item-id {task['item_id']!r} --agent '<worker id or inline>' --status needs_human --summary '<exact blocker or question>'
-13. Then send needs-human email:
-   python3 {SKILL_PATH / 'scripts' / 'notify.py'} needs_human --config {REPO_ROOT / 'config' / 'notifications.json'} --task {task['title']!r} --body '<exact blocker or question>'
+6. Verify the result with the narrowest meaningful check.
+7. Return a concise final answer with status, summary, and verification. Exit 0 only when the task is done.
 """
 
 
@@ -109,14 +130,99 @@ def write_prompt(task: dict[str, str], config_path: Path) -> Path:
     return prompt_path
 
 
-def run_agent(command_template: str, prompt_path: Path, task: dict[str, str]) -> int:
+def run_agent(command_template: str, prompt_path: Path, task: dict[str, str]) -> subprocess.CompletedProcess[str]:
     command = command_template.format(
         prompt_file=str(prompt_path),
         skill_path=str(SKILL_PATH),
         repo_root=str(REPO_ROOT),
         task_json=json.dumps(task),
     )
-    return subprocess.run(command, shell=True, cwd=str(REPO_ROOT), check=False).returncode
+    return subprocess.run(command, shell=True, cwd=str(REPO_ROOT), check=False, text=True, capture_output=True)
+
+
+def claim_task(config_path: Path, task: dict[str, str], dry_run: bool) -> bool:
+    if dry_run:
+        print(f"Dry run; would claim: {task['title']}")
+        return True
+    try:
+        mark_item(config_path, task["item_id"], "in-progress")
+        print(f"Claimed in-progress: {task['title']}")
+        return True
+    except SystemExit as exc:
+        print(f"Skipped claim for {task['title']}: {exc}", file=sys.stderr)
+        return False
+
+
+def finalize_completed_task(config_path: Path, task: dict[str, str], result: subprocess.CompletedProcess[str], prompt_path: Path) -> None:
+    output = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part).strip()
+    verification = output[-4000:] if output else "agent command exited 0"
+    mark_item(config_path, task["item_id"], "done")
+    run_goal_state("close", "--status", "done", "--summary", "agent completed", "--verification", verification)
+    subprocess.run(
+        [
+            "python3",
+            str(SKILL_PATH / "scripts" / "ledger.py"),
+            "done",
+            "--config",
+            str(REPO_ROOT / "config" / "ledger.json"),
+            "--task",
+            task["title"],
+            "--source-id",
+            task["source_id"],
+            "--item-id",
+            task["item_id"],
+            "--agent",
+            "watcher",
+            "--status",
+            "done",
+            "--summary",
+            "agent completed",
+            "--prompt-file",
+            str(prompt_path),
+        ],
+        cwd=str(REPO_ROOT),
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    send_notification("done", task["title"], verification)
+
+
+def finalize_blocked_task(config_path: Path, task: dict[str, str], result: subprocess.CompletedProcess[str], prompt_path: Path) -> None:
+    output = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part).strip()
+    reason = output[-4000:] if output else f"agent command exited {result.returncode}"
+    try:
+        mark_item(config_path, task["item_id"], "blocked")
+    finally:
+        run_goal_state("close", "--status", "needs_human", "--summary", reason, "--verification", "")
+        subprocess.run(
+            [
+                "python3",
+                str(SKILL_PATH / "scripts" / "ledger.py"),
+                "needs_human",
+                "--config",
+                str(REPO_ROOT / "config" / "ledger.json"),
+                "--task",
+                task["title"],
+                "--source-id",
+                task["source_id"],
+                "--item-id",
+                task["item_id"],
+                "--agent",
+                "watcher",
+                "--status",
+                "needs_human",
+                "--summary",
+                reason,
+                "--prompt-file",
+                str(prompt_path),
+            ],
+            cwd=str(REPO_ROOT),
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        send_notification("needs_human", task["title"], reason)
 
 
 def handle_once(config_path: Path, agent_command: str | None, repeat_seen: bool, dry_run: bool) -> int:
@@ -126,13 +232,35 @@ def handle_once(config_path: Path, agent_command: str | None, repeat_seen: bool,
         return 1
 
     attempts = read_attempts()
-    task = items[0]
-    key = task["fingerprint"]
-    if key in attempts and not repeat_seen:
-        print(f"Next todo already prompted: {task['title']}")
-        return 0
+    task = None
+    for candidate in items:
+        key = candidate["fingerprint"]
+        if key in attempts and not repeat_seen:
+            print(f"Todo already prompted: {candidate['title']}")
+            continue
+        if claim_task(config_path, candidate, dry_run):
+            task = candidate
+            break
+
+    if task is None:
+        print("No unclaimed todo items found.")
+        return 1
+
+    if not dry_run:
+        run_goal_state(
+            "activate",
+            "--task",
+            task["title"],
+            "--source-id",
+            task["source_id"],
+            "--item-id",
+            task["item_id"],
+            "--location",
+            task["location"],
+        )
 
     prompt_path = write_prompt(task, config_path)
+    key = task["fingerprint"]
     attempts[key] = {
         "task": task["title"],
         "item_id": task["item_id"],
@@ -151,7 +279,26 @@ def handle_once(config_path: Path, agent_command: str | None, repeat_seen: bool,
         print("Dry run; agent command was not executed.")
         return 0
 
-    return run_agent(agent_command, prompt_path, task)
+    result = run_agent(agent_command, prompt_path, task)
+    if result.returncode == 0:
+        finalize_completed_task(config_path, task, result, prompt_path)
+        return 0
+
+    finalize_blocked_task(config_path, task, result, prompt_path)
+    return 0
+
+
+def handle_drain(config_path: Path, agent_command: str | None, repeat_seen: bool) -> int:
+    write_overarching_goal("active")
+    handled = 0
+    while True:
+        exit_code = handle_once(config_path, agent_command, repeat_seen, False)
+        if exit_code != 0:
+            summary = f"Drain finished after {handled} task(s); no unclaimed actionable tasks remain."
+            write_overarching_goal("done", summary)
+            print(summary)
+            return 0 if handled else exit_code
+        handled += 1
 
 
 def main() -> int:
@@ -162,13 +309,22 @@ def main() -> int:
     parser.add_argument("--once", action="store_true", help="Check once and exit.")
     parser.add_argument("--repeat-seen", action="store_true", help="Prompt even if this task was already seen.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--drain", action="store_true", help="Keep claiming and dispatching tasks until no actionable todos remain.")
     parser.add_argument("--agent-command", default=os.environ.get("TODO_SKILL_AGENT_CMD"))
     args = parser.parse_args()
 
     config_path = Path(args.config).expanduser().resolve()
 
+    if not args.agent_command and not args.dry_run:
+        raise SystemExit("--agent-command or TODO_SKILL_AGENT_CMD is required unless --dry-run is set.")
+    if args.drain and args.dry_run:
+        raise SystemExit("--drain is not supported with --dry-run because dry-run does not claim or complete tasks.")
+
     while True:
-        exit_code = handle_once(config_path, args.agent_command, args.repeat_seen, args.dry_run)
+        if args.drain:
+            exit_code = handle_drain(config_path, args.agent_command, args.repeat_seen)
+        else:
+            exit_code = handle_once(config_path, args.agent_command, args.repeat_seen, args.dry_run)
         if args.once:
             return exit_code
         wait_seconds = args.interval + (random.randint(0, args.jitter) if args.jitter > 0 else 0)

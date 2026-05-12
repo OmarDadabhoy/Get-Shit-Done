@@ -1,6 +1,6 @@
-# Get Shit Done Skill
+# Get Shit Done
 
-Codex/Claude skill that pulls the next task from a todo source, makes it the active goal, does the work, marks the source item done, and emails you if it finishes or needs help.
+A Codex/Claude skill that drains a todo source. It claims each task, runs it as a goal, marks it done or blocked, emails you, then keeps checking on a schedule.
 
 ## Install
 
@@ -13,38 +13,17 @@ cp config/ledger.example.json config/ledger.json
 scripts/install-codex-symlink.sh
 ```
 
-Then in Codex:
+Run it with:
 
 ```text
-Use $get-shit-done
+/get-shit-done
 ```
 
-Claude Code can use the repo directly; it reads `CLAUDE.md` and `skills/get-shit-done/SKILL.md`.
+## Required Setup
 
-## Use Existing Tools First
+Edit `config/todo_sources.json` and enable your source.
 
-If Codex or Claude already has a tool for something, the skill should use that first. That includes MCP servers, app connectors, installed skills, browser tools, and authenticated CLIs like `gh` or `gcloud`.
-
-You do not need to duplicate credentials in local config for an interactive agent session. Use local JSON config only for headless scripts, polling, or agent runtimes that do not expose the needed capability.
-
-## Add Tasks
-
-Fastest option: edit `inbox/todo.md`.
-
-```markdown
-- [ ] Draft the launch email
-TODO: Follow up with Sam
-```
-
-Check what the skill sees:
-
-```bash
-python3 skills/get-shit-done/scripts/todo_source.py next --config config/todo_sources.json
-```
-
-## Connect Google Docs
-
-Edit `config/todo_sources.json`:
+Google Docs:
 
 ```json
 {
@@ -57,31 +36,7 @@ Edit `config/todo_sources.json`:
 }
 ```
 
-Write-back options:
-
-- `mark_done`: `[ ]` becomes `[x]`, `TODO` becomes `DONE`
-- `delete`: clears the task paragraph
-- `none`: read only
-
-For private docs, authenticate with one of:
-
-```bash
-gcloud auth application-default login
-```
-
-or set `token_env` / `token_command` in the source config.
-
-Skip this section if your agent already has Google Drive/Docs access through MCP, a connector, a skill, or an authenticated CLI and you are running the skill interactively.
-
-## Connect Notion
-
-Create a Notion integration, share the page with it, then:
-
-```bash
-export NOTION_TOKEN='secret_...'
-```
-
-Edit `config/todo_sources.json`:
+Notion:
 
 ```json
 {
@@ -94,83 +49,50 @@ Edit `config/todo_sources.json`:
 }
 ```
 
-Notion supports unchecked `to_do` blocks, `- [ ] Task`, and `TODO: Task`.
+Private Google Docs usually need:
 
-When work starts, Google Docs/Notion tasks are marked in-progress so other agents skip them. Completion changes them to done; blocked work is marked blocked.
-
-Skip this section if your agent already has Notion access through MCP, a connector, a skill, or an authenticated CLI and you are running the skill interactively.
-
-## Email Me
-
-Edit `config/notifications.json` and set `enabled` to `true`.
-
-Simple local mail example:
-
-```json
-{
-  "enabled": true,
-  "method": "command",
-  "to": ["you@example.com"],
-  "command": "mail -s {subject} {to} < {body_file}"
-}
+```bash
+gcloud auth application-default login
 ```
 
-SMTP is also supported with `SMTP_USERNAME` and `SMTP_PASSWORD`.
+Notion usually needs:
 
-## Track Worker State
-
-Edit `config/ledger.json`.
-
-Local CSV:
-
-```json
-{
-  "enabled": true,
-  "type": "local_csv",
-  "path": "state/task_ledger.csv"
-}
+```bash
+export NOTION_TOKEN='secret_...'
 ```
 
-Google Sheet:
+For email, put your address in `config/notifications.json` or set one env var:
 
-```json
-{
-  "enabled": true,
-  "type": "google_sheets",
-  "spreadsheet_id": "YOUR_GOOGLE_SHEET_ID",
-  "range": "AgentRuns!A:J",
-  "auth": "gcloud"
-}
+```bash
+export TODO_SKILL_EMAIL_TO='you@example.com'
 ```
 
-The ledger records queued/assigned/running/done/blocked state for each worker or inline run.
+## How It Runs
+
+- Loads your local environment first: `AGENTS.md`, `CLAUDE.md`, installed skills, MCP/app connectors, and authenticated CLIs.
+- Uses one overarching goal: clear all actionable tasks from the source.
+- Uses a task goal for every single claimed item.
+- Claims first by marking the source item in-progress: `[>]` or `WIP`.
+- Only claimed items can become done or blocked.
+- Marks completion as `[x]` or `DONE`; marks blockers as `[!]` or `BLKD`.
+- Sends an email after every completed task when an email recipient is available.
+- Skips tasks already in-progress, done, or blocked so multiple agents do not intentionally collide.
+
+Google Docs claims use revision checks. Notion and local files re-check the current marker before each transition.
 
 ## Polling
 
-Check once:
+Dry run:
 
 ```bash
-python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --once
+python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --once --dry-run
 ```
 
-Poll every 20-30 minutes:
-
-```bash
-python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --interval 1800 --jitter 600
-```
-
-To have the watcher invoke an agent:
+Run continuously every 20-30 minutes:
 
 ```bash
 TODO_SKILL_AGENT_CMD='your-agent-command {prompt_file}' \
-python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json
-```
-
-## Verify
-
-```bash
-python3 -m py_compile skills/get-shit-done/scripts/*.py
-python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/get-shit-done
+python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --drain --interval 1800 --jitter 600
 ```
 
 Real config files are gitignored. Commit only `config/*.example.json`.

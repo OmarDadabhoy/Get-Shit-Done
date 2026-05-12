@@ -29,6 +29,31 @@ CHECKBOX_STATUS = {" ": "todo", ">": "in-progress", "!": "blocked", "x": "done",
 KEYWORD_STATUS = {"TODO": "todo", "WIP": "in-progress", "DONE": "done", "BLKD": "blocked"}
 
 
+def line_task_status(line: str) -> str:
+    checkbox = CHECKBOX_RE.match(line)
+    if checkbox:
+        return CHECKBOX_STATUS.get(checkbox.group("mark"), "unknown")
+
+    status_line = STATUS_RE.match(line)
+    if status_line:
+        return KEYWORD_STATUS.get(status_line.group("keyword").upper(), "unknown")
+
+    if TODO_RE.match(line):
+        return "todo"
+
+    return "unknown"
+
+
+def require_status_transition(item_id: str, current_status: str, target_status: str, source_name: str) -> None:
+    if target_status == "in-progress" and current_status != "todo":
+        raise SystemExit(f"Cannot claim {source_name} item {item_id}; current status is {current_status}.")
+    if target_status in {"done", "blocked"} and current_status != "in-progress":
+        raise SystemExit(
+            f"Cannot mark {source_name} item {item_id} {target_status}; "
+            f"current status is {current_status}. Claim it in-progress first."
+        )
+
+
 def load_config(config_path: Path) -> dict[str, Any]:
     with config_path.open("r", encoding="utf-8") as handle:
         config = json.load(handle)
@@ -275,6 +300,7 @@ def google_doc_paragraph_tasks(
                         f"{location}:{start_index}",
                         {
                             "document_id": doc_id,
+                            "revision_id": document.get("revisionId"),
                             "paragraph_start": start_index,
                             "paragraph_end": end_index,
                             "marker_start": start_index + marker_offset,
@@ -302,10 +328,11 @@ def google_doc_paragraph_tasks(
                     status_line.group("title"),
                     "google_docs",
                     f"{location}:{start_index}",
-                    {
-                        "document_id": doc_id,
-                        "paragraph_start": start_index,
-                        "paragraph_end": end_index,
+                        {
+                            "document_id": doc_id,
+                            "revision_id": document.get("revisionId"),
+                            "paragraph_start": start_index,
+                            "paragraph_end": end_index,
                         "marker_start": start_index + keyword_match.start(),
                         "marker_end": start_index + keyword_match.end(),
                         "kind": "todo",
@@ -363,13 +390,21 @@ def find_google_doc_task_for_item(source: dict[str, Any], item_id: str, token: s
     raise SystemExit(f"Could not find current Google Docs task for item id: {item_id}")
 
 
-def google_docs_batch_update(source: dict[str, Any], token: str, requests: list[dict[str, Any]]) -> dict[str, Any]:
+def google_docs_batch_update(
+    source: dict[str, Any],
+    token: str,
+    requests: list[dict[str, Any]],
+    revision_id: str | None = None,
+) -> dict[str, Any]:
     doc_id = google_doc_id(source)
+    payload: dict[str, Any] = {"requests": requests}
+    if revision_id:
+        payload["writeControl"] = {"requiredRevisionId": revision_id}
     return google_json_request(
         "POST",
         f"https://docs.googleapis.com/v1/documents/{doc_id}:batchUpdate",
         token,
-        {"requests": requests},
+        payload,
     )
 
 
@@ -378,6 +413,7 @@ def mark_google_docs_item(config_path: Path, source: dict[str, Any], item_id: st
     task = find_google_doc_task_for_item(source, item_id, token)
     writeback = task.get("writeback", {})
     mode = source.get("writeback", "mark_done")
+    require_status_transition(item_id, str(writeback.get("status", "unknown")), status, "Google Docs")
 
     if mode == "delete" and status == "done":
         paragraph_start = int(writeback["paragraph_start"])
@@ -409,7 +445,7 @@ def mark_google_docs_item(config_path: Path, source: dict[str, Any], item_id: st
     else:
         raise SystemExit(f"Unsupported Google Docs writeback mode for source '{source['id']}': {mode}")
 
-    google_docs_batch_update(source, token, requests)
+    google_docs_batch_update(source, token, requests, writeback.get("revision_id"))
     return {
         "item_id": item_id,
         "status": status,
@@ -675,6 +711,17 @@ def mark_notion_item(config_path: Path, source: dict[str, Any], item_id: str, st
         if block_type == "to_do":
             current = notion_block_text(block).strip()
             clean = re.sub(r"^\[[>!xX]\]\s+", "", current)
+            if block.get("to_do", {}).get("checked", False):
+                current_status = "done"
+            elif current.startswith("[>] "):
+                current_status = "in-progress"
+            elif current.startswith("[!] "):
+                current_status = "blocked"
+            elif current.startswith("[x] ") or current.startswith("[X] "):
+                current_status = "done"
+            else:
+                current_status = "todo"
+            require_status_transition(item_id, current_status, status, "Notion")
             if status == "done":
                 payload = {"to_do": {"checked": True, "rich_text": notion_rich_text(clean)}}
             elif status == "in-progress":
@@ -686,6 +733,8 @@ def mark_notion_item(config_path: Path, source: dict[str, Any], item_id: str, st
             notion_request("PATCH", f"https://api.notion.com/v1/blocks/{block_id}", token, source, payload)
         elif block_type in {"paragraph", "bulleted_list_item", "numbered_list_item"}:
             line = notion_block_text(block)
+            current_status = line_task_status(line.strip())
+            require_status_transition(item_id, current_status, status, "Notion")
             checkbox = CHECKBOX_RE.match(line.strip())
             if checkbox:
                 marker = {"in-progress": "[>]", "blocked": "[!]", "done": "[x]"}.get(status)
@@ -791,6 +840,8 @@ def mark_item(config_path: Path, item_id: str, status: str) -> dict[str, Any]:
         raise SystemExit(f"Line {line_number} is out of range for {path}.")
 
     old_line = lines[line_number - 1]
+    if status in {"in-progress", "done", "blocked"}:
+        require_status_transition(item_id, line_task_status(old_line), status, "text")
     lines[line_number - 1] = update_text_line(old_line, status)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {
@@ -804,7 +855,7 @@ def mark_item(config_path: Path, item_id: str, status: str) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read and update Get Shit Done todo sources.")
-    parser.add_argument("command", choices=["list", "next", "mark"])
+    parser.add_argument("command", choices=["list", "next", "mark", "claim"])
     parser.add_argument("--config", default="config/todo_sources.json")
     parser.add_argument("--item-id")
     parser.add_argument("--status", choices=["todo", "in-progress", "done", "blocked"])
@@ -827,6 +878,12 @@ def main() -> int:
         if not args.item_id or not args.status:
             raise SystemExit("mark requires --item-id and --status.")
         print(json.dumps(mark_item(config_path, args.item_id, args.status), indent=2))
+        return 0
+
+    if args.command == "claim":
+        if not args.item_id:
+            raise SystemExit("claim requires --item-id.")
+        print(json.dumps(mark_item(config_path, args.item_id, "in-progress"), indent=2))
         return 0
 
     return 2

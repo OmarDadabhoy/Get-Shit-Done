@@ -24,7 +24,16 @@ def recipients(config: dict) -> list[str]:
     values = config.get("to", [])
     if isinstance(values, str):
         values = [values]
-    return [value for value in values if value]
+    env_values = []
+    for name in ("TODO_SKILL_EMAIL_TO", "GSD_EMAIL_TO", "NOTIFY_EMAIL_TO", "USER_EMAIL", "EMAIL"):
+        if os.environ.get(name):
+            env_values.extend(os.environ[name].split(","))
+    all_values = [str(value).strip() for value in [*values, *env_values] if str(value).strip()]
+    return [value for value in all_values if value.lower() != "you@example.com"]
+
+
+def enabled(config: dict, message_to: list[str]) -> bool:
+    return bool(config.get("enabled", False) or message_to)
 
 
 def subject(config: dict, event: str, task: str, explicit: str) -> str:
@@ -110,17 +119,19 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_config(Path(args.config).expanduser().resolve())
-    if not config.get("enabled", False):
+    message_to = recipients(config)
+    if not enabled(config, message_to):
         print("Notifications disabled.")
         return 0
 
-    message_to = recipients(config)
     if not message_to:
         raise SystemExit("Notification config must include at least one recipient in 'to'.")
 
     message_subject = subject(config, args.event, args.task, args.subject)
     message_body = body_text(args.event, args.task, args.body)
     method = config.get("method", "command")
+    if method == "command" and not config.get("command"):
+        config["command"] = "mail -s {subject} {to} < {body_file}"
 
     if method == "smtp":
         send_smtp(config, message_subject, message_body, message_to)
