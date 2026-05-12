@@ -49,6 +49,20 @@ Use $get-shit-done
 
 The skill will load the next task, set a Codex goal when goal tools are available, execute the task, verify it, and mark it complete when the source supports write-back.
 
+## Goal Mode
+
+Every task gets a goal lifecycle.
+
+- In Codex, the skill instructs the agent to call `create_goal` before doing task work and mark the goal complete after verification.
+- In Claude Code or other agents, use the file-backed fallback:
+
+```bash
+python3 skills/get-shit-done/scripts/goal_state.py activate --task 'Draft the launch email'
+python3 skills/get-shit-done/scripts/goal_state.py close --status done --summary 'Drafted' --verification 'Saved draft'
+```
+
+Fallback goal state is written to `state/current_goal.json` and `state/current_goal.md`; closed goals append to `state/goal_history.jsonl`.
+
 ## Polling
 
 Check once and generate a prompt:
@@ -243,6 +257,7 @@ Recommended private source flow:
 - `skills/get-shit-done/scripts/todo_source.py`: source reader and mark-complete helper.
 - `skills/get-shit-done/scripts/run_loop.py`: polling runner.
 - `skills/get-shit-done/scripts/notify.py`: email notification helper.
+- `skills/get-shit-done/scripts/goal_state.py`: file-backed goal mode fallback.
 - `config/todo_sources.json`: source configuration.
 - `config/notifications.json`: email notification configuration.
 - `inbox/todo.md`: default local todo inbox.
@@ -252,7 +267,7 @@ Recommended private source flow:
 Run these before pushing changes:
 
 ```bash
-python3 -m py_compile skills/get-shit-done/scripts/todo_source.py skills/get-shit-done/scripts/run_loop.py skills/get-shit-done/scripts/notify.py
+python3 -m py_compile skills/get-shit-done/scripts/todo_source.py skills/get-shit-done/scripts/run_loop.py skills/get-shit-done/scripts/notify.py skills/get-shit-done/scripts/goal_state.py
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/get-shit-done
 python3 skills/get-shit-done/scripts/todo_source.py list --config config/todo_sources.json
 ```

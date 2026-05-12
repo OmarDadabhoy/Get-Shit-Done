@@ -1,5 +1,6 @@
 .DS_Store
 state/*.json
+state/*.jsonl
 state/prompts/
 state/current_goal.md
 state/completions.md

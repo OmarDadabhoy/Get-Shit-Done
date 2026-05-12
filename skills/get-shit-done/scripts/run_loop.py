@@ -40,6 +40,19 @@ def build_prompt(task: dict[str, str], config_path: Path) -> str:
         f"python3 {SKILL_PATH / 'scripts' / 'todo_source.py'} mark "
         f"--config {config_path} --item-id {task['item_id']!r} --status done"
     )
+    activate_goal_command = (
+        f"python3 {SKILL_PATH / 'scripts' / 'goal_state.py'} activate "
+        f"--task {task['title']!r} --source-id {task['source_id']!r} "
+        f"--item-id {task['item_id']!r} --location {task['location']!r}"
+    )
+    close_goal_command = (
+        f"python3 {SKILL_PATH / 'scripts' / 'goal_state.py'} close "
+        "--status done --summary '<result>' --verification '<verification summary>'"
+    )
+    blocked_goal_command = (
+        f"python3 {SKILL_PATH / 'scripts' / 'goal_state.py'} close "
+        "--status needs_human --summary '<blocker>' --verification ''"
+    )
     current_goal_path = STATE_DIR / "current_goal.md"
     completions_path = STATE_DIR / "completions.md"
 
@@ -54,15 +67,25 @@ Source:
 
 Instructions:
 1. Read {SKILL_PATH / 'SKILL.md'} if the skill is not already loaded.
-2. In Codex, create a goal for this task if goal tools are available. In Claude Code, write the active goal to {current_goal_path}.
+2. Activate goal mode before doing any work:
+   - In Codex, call create_goal with this exact task if goal tools are available.
+   - In Claude Code or other agents, run:
+     {activate_goal_command}
+   This writes the fallback goal file at {current_goal_path}.
 3. Execute the task end to end, asking only for blockers or approval before externally visible/destructive actions.
 4. Verify the result.
 5. If the source supports completion, mark it done with:
    {completion_command}
-6. Append a short result and verification note to {completions_path}.
-7. If notifications are enabled, send completion email:
+6. Close the active goal after completion:
+   - In Codex, mark the goal complete if goal tools are available.
+   - In every agent, run:
+     {close_goal_command}
+7. Append a short result and verification note to {completions_path}.
+8. If notifications are enabled, send completion email:
    python3 {SKILL_PATH / 'scripts' / 'notify.py'} done --config {REPO_ROOT / 'config' / 'notifications.json'} --task {task['title']!r} --body '<verification summary>'
-8. If blocked or waiting for input, send needs-human email:
+9. If blocked or waiting for input, run this goal closeout first:
+   {blocked_goal_command}
+10. Then send needs-human email:
    python3 {SKILL_PATH / 'scripts' / 'notify.py'} needs_human --config {REPO_ROOT / 'config' / 'notifications.json'} --task {task['title']!r} --body '<exact blocker or question>'
 """
 

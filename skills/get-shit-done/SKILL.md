@@ -9,7 +9,7 @@ description: Work through the user's todo inbox one item at a time. Use when the
 
 Pick the next actionable todo, make it the active objective, execute it end to end, verify the result, and leave a concise audit trail. Do not batch unrelated todos unless the user explicitly asks.
 
-This skill is agent-framework agnostic. In Codex, use goal mode when available. In Claude Code or other agents, emulate the active goal by writing `state/current_goal.md` in the TodoSkill repo.
+This skill is agent-framework agnostic. In Codex, activate goal mode for every task when goal tools are available. In Claude Code or other agents, emulate the active goal with `skills/get-shit-done/scripts/goal_state.py`.
 
 ## Quick Start
 
@@ -31,9 +31,9 @@ The watcher only prepares prompts unless `TODO_SKILL_AGENT_CMD` or `--agent-comm
 
 1. Read `config/todo_sources.json` and load the next incomplete todo with `todo_source.py next`.
 2. If no todo exists, report that the inbox is empty and stop.
-3. Turn the todo into the active goal:
+3. Turn the todo into the active goal before any execution:
    - Codex: call `create_goal` with the todo as the concrete objective when goal tools are available and no active goal already exists.
-   - Claude Code or other agents: write `state/current_goal.md` with the todo, source id, item id, and timestamp.
+   - Claude Code or other agents: run `goal_state.py activate` with the todo, source id, item id, and location.
 4. Clarify only when the task cannot be executed safely or meaningfully without more input.
 5. Execute the task using the normal tools available in the current agent environment.
 6. Verify with the narrowest meaningful check: tests, command output, file diff, browser QA, sent/draft status, or source-specific proof.
@@ -43,20 +43,26 @@ The watcher only prepares prompts unless `TODO_SKILL_AGENT_CMD` or `--agent-comm
 python3 skills/get-shit-done/scripts/todo_source.py mark --config config/todo_sources.json --item-id '<item-id>' --status done
 ```
 
-8. Append a short note to `state/completions.md` with the task, result, verification, and any follow-up.
-9. Send a notification if `config/notifications.json` is enabled:
+8. Close the active goal:
+
+```bash
+python3 skills/get-shit-done/scripts/goal_state.py close --status done --summary '<result>' --verification '<verification>'
+```
+
+9. Append a short note to `state/completions.md` with the task, result, verification, and any follow-up.
+10. Send a notification if `config/notifications.json` is enabled:
 
 ```bash
 python3 skills/get-shit-done/scripts/notify.py done --config config/notifications.json --task '<task>' --body '<verification summary>'
 ```
 
-10. If blocked or human input is required, send:
+11. If blocked or human input is required, first close the local goal as blocked or `needs_human`, then send:
 
 ```bash
 python3 skills/get-shit-done/scripts/notify.py needs_human --config config/notifications.json --task '<task>' --body '<exact blocker or question>'
 ```
 
-11. If a continuous watcher is running, let it poll again after the configured interval.
+12. If a continuous watcher is running, let it poll again after the configured interval.
 
 ## Task Selection
 
