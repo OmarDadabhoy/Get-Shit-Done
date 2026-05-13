@@ -1,12 +1,14 @@
-# Get Shit Done
+# AI Slaves
 
-Slash-command skill for Codex or Claude Code. It reads a todo source, claims one item, runs it as a goal, marks it done or blocked, emails you, then keeps draining.
+The AI that drains your todo list while you sleep. Slash-command skill for Codex or Claude Code. It reads a todo source, claims one item, runs it as a goal, marks it done or blocked, emails you, then keeps draining.
+
+Live at [ai-slaves.com](https://ai-slaves.com). For the multi-worker orchestrator variant, see [ai-slaves-sweeper](https://github.com/OmarDadabhoy/ai-slaves-sweeper).
 
 ## Install
 
 ```bash
-git clone git@github.com:OmarDadabhoy/Get-Shit-Done.git
-cd Get-Shit-Done
+git clone git@github.com:OmarDadabhoy/ai-slaves.git
+cd ai-slaves
 cp config/todo_sources.example.json config/todo_sources.json
 cp config/notifications.example.json config/notifications.json
 cp config/ledger.example.json config/ledger.json
@@ -21,7 +23,7 @@ scripts/install-codex-symlink.sh
 /get-shit-done https://docs.google.com/document/d/...
 ```
 
-The slash command uses existing Codex/Claude access first: MCP/app connectors, installed skills, browser tools, and authenticated CLIs.
+The slash command keeps its name (`/get-shit-done`) for muscle memory. The product is AI Slaves. The slash command uses existing Codex/Claude access first: MCP/app connectors, installed skills, browser tools, and authenticated CLIs.
 
 ## Config
 
