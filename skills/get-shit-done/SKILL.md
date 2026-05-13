@@ -39,7 +39,14 @@ TODO_SKILL_AGENT_CMD='your-agent-command {prompt_file}' \
 python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --drain --interval 1800 --jitter 600
 ```
 
-The watcher requires `TODO_SKILL_AGENT_CMD` or `--agent-command` for live execution. Use `--dry-run` when you only want rendered prompts. A skill alone cannot keep an agent alive.
+Built-in external runtimes are also available:
+
+```bash
+python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --drain --runtime hermes
+python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --drain --runtime openclaw --openclaw-agent ops
+```
+
+The watcher requires `TODO_SKILL_AGENT_CMD`, `--agent-command`, or `--runtime hermes|openclaw` for live execution. Use `--dry-run` when you only want rendered prompts. A skill alone cannot keep an agent alive.
 
 ## Workflow
 
@@ -75,6 +82,8 @@ python3 skills/get-shit-done/scripts/todo_source.py claim --config config/todo_s
 8. Assign execution to a dedicated worker/sub-agent:
    - Codex: spawn exactly one worker sub-agent for the claimed task when `spawn_agent` is available. Tell the worker it is not alone in the codebase and must not mark the source done, close the goal, or send notifications.
    - Claude Code: use Claude Code's native sub-agent/task-worker mechanism when available with the same boundaries.
+   - Hermes: use `--runtime hermes` or an equivalent Hermes one-shot `hermes chat -q` worker command. Preload Hermes skills with `--hermes-skill` when needed.
+   - OpenClaw: use `--runtime openclaw --openclaw-agent <name>` or `OPENCLAW_AGENT=<name>` so each claimed task is sent as one OpenClaw agent turn.
    - Headless watcher mode: treat the configured `TODO_SKILL_AGENT_CMD` or `--agent-command` invocation as the worker boundary; that worker must create a sub-agent when its runtime supports one.
    - If no worker/sub-agent mechanism exists, mark the task blocked or `needs_human` with "No sub-agent mechanism available" unless the user explicitly allowed inline fallback.
 9. Track the assignment in the ledger when `config/ledger.json` is enabled:

@@ -42,6 +42,9 @@ python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.js
 
 TODO_SKILL_AGENT_CMD='your-agent-command {prompt_file}' \
 python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --drain --interval 1800 --jitter 600
+
+python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --drain --runtime hermes
+python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --drain --runtime openclaw --openclaw-agent ops
 ```
 
 ## Rules
