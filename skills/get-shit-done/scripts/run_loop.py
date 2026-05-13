@@ -21,6 +21,9 @@ STATE_DIR = REPO_ROOT / "state"
 ATTEMPTS_PATH = STATE_DIR / "attempts.json"
 OVERARCHING_GOAL_JSON = STATE_DIR / "overarching_goal.json"
 OVERARCHING_GOAL_MD = STATE_DIR / "overarching_goal.md"
+DEFAULT_BEST_MODELS = {
+    "hermes": "opus",
+}
 
 
 def now() -> str:
@@ -212,9 +215,9 @@ Instructions:
    - In other agents, treat {current_goal_path} as the active fallback goal.
 4. Load the local operating context for the workspace before task work: AGENTS.md, CLAUDE.md, SKILL.md, user-level agent instructions, installed skills, MCP/app connectors, and authenticated CLIs. Use those environment tools first unless they conflict with the claim-first/done-or-blocked protocol.
 5. Delegate execution to exactly one dedicated worker/sub-agent:
-   - In Codex, spawn exactly one worker sub-agent for this task if spawn_agent is available.
-   - In Claude Code, use Claude Code's native sub-agent/task-worker mechanism when available.
-   - In Hermes or OpenClaw, treat this one-shot agent run as the dedicated worker boundary; use their available skills/tools to delegate further only if the runtime supports it.
+   - In Codex, spawn exactly one worker sub-agent for this task if spawn_agent is available, and set the worker to the best available Codex model, currently gpt-5.5, unless the user explicitly requested another model.
+   - In Claude Code, use Claude Code's native sub-agent/task-worker mechanism when available, defaulting to the opus model alias or the best available Claude Code model unless the user explicitly requested another model.
+   - In Hermes or OpenClaw, treat this one-shot agent run as the dedicated worker boundary; use the best available runtime model when model selection exists, and use OpenClaw xhigh thinking unless the user explicitly requested another thinking level.
    - Tell the worker not to mark the source done, close the goal, or send notifications; the watcher owns those forced closeout steps.
    - If no sub-agent or task-worker mechanism exists, return status needs_human with "No sub-agent mechanism available" instead of executing inline, unless the user explicitly allowed inline fallback for this run.
 6. Verify the worker result with the narrowest meaningful check.
@@ -240,6 +243,7 @@ def run_agent(
     openclaw_agent: str | None = None,
     openclaw_to: str | None = None,
     openclaw_local: bool = False,
+    openclaw_thinking: str | None = None,
     timeout: int | None = None,
     model: str | None = None,
     hermes_skills: list[str] | None = None,
@@ -254,6 +258,7 @@ def run_agent(
         openclaw_agent=openclaw_agent,
         openclaw_to=openclaw_to,
         openclaw_local=openclaw_local,
+        openclaw_thinking=openclaw_thinking,
         timeout=timeout,
         model=model,
         hermes_skills=hermes_skills or [],
@@ -277,6 +282,7 @@ def runtime_command(
     openclaw_agent: str | None = None,
     openclaw_to: str | None = None,
     openclaw_local: bool = False,
+    openclaw_thinking: str | None = None,
     timeout: int | None = None,
     model: str | None = None,
     hermes_skills: list[str] | None = None,
@@ -286,14 +292,16 @@ def runtime_command(
         for skill in hermes_skills or []:
             if skill:
                 command.extend(["-s", skill])
-        if model:
-            command.extend(["--model", model])
+        effective_model = model if model is not None else default_best_model(runtime)
+        if effective_model:
+            command.extend(["--model", effective_model])
         command.extend(["-q", prompt])
         return command
 
     if runtime == "openclaw":
         agent = openclaw_agent or os.environ.get("OPENCLAW_AGENT")
         target = openclaw_to or os.environ.get("OPENCLAW_TO")
+        thinking = openclaw_thinking if openclaw_thinking is not None else os.environ.get("OPENCLAW_THINKING", "xhigh")
         if not agent and not target:
             raise SystemExit("--runtime openclaw requires --openclaw-agent/OPENCLAW_AGENT or --openclaw-to/OPENCLAW_TO.")
         command = ["openclaw", "agent"]
@@ -303,12 +311,25 @@ def runtime_command(
             command.extend(["--to", target])
         if openclaw_local:
             command.append("--local")
+        if thinking:
+            command.extend(["--thinking", thinking])
         if timeout:
             command.extend(["--timeout", str(timeout)])
         command.extend(["--message", prompt])
         return command
 
     raise SystemExit(f"Unsupported runtime: {runtime}. Use custom, hermes, or openclaw.")
+
+
+def default_best_model(runtime: str) -> str | None:
+    if runtime == "hermes":
+        return (
+            os.environ.get("TODO_SKILL_MODEL")
+            or os.environ.get("GSD_HERMES_MODEL")
+            or os.environ.get("HERMES_MODEL")
+            or DEFAULT_BEST_MODELS["hermes"]
+        )
+    return os.environ.get("TODO_SKILL_MODEL")
 
 
 def claim_task(config_path: Path, task: dict[str, str], dry_run: bool) -> bool:
@@ -482,6 +503,7 @@ def handle_once(args: argparse.Namespace, config_path: Path, repeat_seen: bool, 
         openclaw_to=args.openclaw_to,
         openclaw_local=args.openclaw_local,
         timeout=args.runtime_timeout,
+        openclaw_thinking=args.openclaw_thinking,
         model=args.model,
         hermes_skills=args.hermes_skill,
     )
@@ -523,6 +545,7 @@ def main() -> int:
     parser.add_argument("--openclaw-agent", default=os.environ.get("OPENCLAW_AGENT"))
     parser.add_argument("--openclaw-to", default=os.environ.get("OPENCLAW_TO"))
     parser.add_argument("--openclaw-local", action="store_true", default=os.environ.get("OPENCLAW_LOCAL", "").lower() in {"1", "true", "yes"})
+    parser.add_argument("--openclaw-thinking", default=os.environ.get("OPENCLAW_THINKING"))
     args = parser.parse_args()
 
     config_path = Path(args.config).expanduser().resolve()

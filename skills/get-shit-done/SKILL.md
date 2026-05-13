@@ -13,6 +13,7 @@ These are hard gates:
 
 - Do not execute a task until the source item is marked in-progress.
 - Do not execute a claimed task inline when Codex, Claude Code, or the configured runtime can create a worker/sub-agent. Every Notion, Google Docs, and local-file task gets its own worker/sub-agent.
+- Do not create lower-tier workers by default. Every worker/sub-agent must use the best available model unless the user explicitly requests a different model, cheaper mode, faster mode, or runtime default.
 - If no worker/sub-agent mechanism exists, stop with `needs_human` or blocked status instead of silently executing inline, unless the user explicitly permits inline fallback for that run.
 - Do not mark a task done until it was already in-progress.
 - Do not leave a completed or blocked task without updating the source.
@@ -94,10 +95,10 @@ python3 skills/get-shit-done/scripts/todo_source.py claim --config config/todo_s
    - Other agents: run `goal_state.py activate` with the todo, source id, item id, and location.
 7. Clarify only when the task cannot be executed safely or meaningfully without more input.
 8. Assign execution to a dedicated worker/sub-agent:
-   - Codex: spawn exactly one worker sub-agent for the claimed task when `spawn_agent` is available. Tell the worker it is not alone in the codebase and must not mark the source done, close the goal, or send notifications.
-   - Claude Code: use Claude Code's native sub-agent/task-worker mechanism when available with the same boundaries.
-   - Hermes: use `--runtime hermes` or an equivalent Hermes one-shot `hermes chat -q` worker command. Preload Hermes skills with `--hermes-skill` when needed.
-   - OpenClaw: use `--runtime openclaw --openclaw-agent <name>` or `OPENCLAW_AGENT=<name>` so each claimed task is sent as one OpenClaw agent turn.
+   - Codex: spawn exactly one worker sub-agent for the claimed task when `spawn_agent` is available. Set the worker model to the best available Codex model, currently `gpt-5.5`, unless the user explicitly requested a different model. Tell the worker it is not alone in the codebase and must not mark the source done, close the goal, or send notifications.
+   - Claude Code: use Claude Code's native sub-agent/task-worker mechanism when available with the same boundaries. Use the `opus` model alias or the best available Claude Code model unless the user explicitly requested something else.
+   - Hermes: use `--runtime hermes` or an equivalent Hermes one-shot `hermes chat -q` worker command. Default model selection to the best available model when the runtime accepts a model flag, and preload Hermes skills with `--hermes-skill` when needed.
+   - OpenClaw: use `--runtime openclaw --openclaw-agent <name>` or `OPENCLAW_AGENT=<name>` so each claimed task is sent as one OpenClaw agent turn. Use the configured best OpenClaw model and default to `--thinking xhigh` unless the user explicitly requested another thinking level.
    - Headless watcher mode: treat the configured `TODO_SKILL_AGENT_CMD` or `--agent-command` invocation as the worker boundary; that worker must create a sub-agent when its runtime supports one.
    - If no worker/sub-agent mechanism exists, mark the task blocked or `needs_human` with "No sub-agent mechanism available" unless the user explicitly allowed inline fallback.
 9. Track the assignment in the ledger when `config/ledger.json` is enabled:
