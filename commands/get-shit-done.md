@@ -18,6 +18,7 @@ This invocation is drain mode:
 - Never execute an unclaimed task.
 - Never mark a task done unless it was in-progress first.
 - Mark each task done or blocked in the source before moving on.
+- Before exiting the first drain cycle, ensure a recurring drain check is scheduled (default 15 min, allowed 10-20 min, user-tweakable) via `/schedule` or `/loop`. Skip only if the user said one-shot or a schedule is already active.
 - If the agent sees useful improvements while working, append them to the source under `Suggested Changes`.
 - Create and open an HTML handoff report for every completed, blocked, or needs-human task.
 - Send a completion email after every finished task when any recipient email is configured or available in env.

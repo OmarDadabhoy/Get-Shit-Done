@@ -16,13 +16,27 @@ These are hard gates:
 - If no worker/sub-agent mechanism exists, stop with `needs_human` or blocked status instead of silently executing inline, unless the user explicitly permits inline fallback for that run.
 - Do not mark a task done until it was already in-progress.
 - Do not leave a completed or blocked task without updating the source.
-- Do not skip goal mode. Codex must use native goal mode with `create_goal` when available. Claude Code must use Claude Code native goal mode. Other agents use `goal_state.py`.
+- Do not skip goal mode. Codex must use native goal mode with `create_goal` when available. Claude Code must use Claude Code native goal mode (`/goal`). Other agents use `goal_state.py`.
+- Do not skip the recurring schedule. On any interactive invocation, ensure a recurring drain check is scheduled (default every 15 min, allowed range 10-20 min, user-tweakable). If one is already active, leave it alone.
 - Do not finish a task without creating and opening an HTML handoff report that states what was done, what was verified, and what the user still needs to do.
 - Do not skip completion email when `config/notifications.json` or email env vars provide a recipient.
 - Do not stop after one task when the user invoked drain/watch mode; keep going until the configured source has no unclaimed actionable items.
 - When useful improvements appear during work, append them to the source document under `Suggested Changes`.
 
 This skill is agent-framework agnostic. In Codex and Claude Code, use native goal mode for the overarching drain objective and for every task. For other agents, emulate goal mode with `skills/get-shit-done/scripts/goal_state.py` and `state/overarching_goal.md`.
+
+## Recurring Schedule (Required)
+
+When invoked interactively, the skill must keep polling. Before exiting the first drain cycle, ensure a recurring check is scheduled:
+
+- Default interval: **15 minutes**. Allowed range: **10-20 minutes**.
+- Tweakable: if the user names an interval (e.g. "every 30 min", "hourly", "every 5 min"), honor it. Otherwise default to 15.
+- In Claude Code: use `/schedule` to create a routine that re-invokes `/get-shit-done`, or `/loop 15m /get-shit-done` for the lighter-weight in-session variant. Prefer `/schedule` for persistence across sessions.
+- In Codex or headless runtimes: use `skills/get-shit-done/scripts/run_loop.py --drain --interval 900 --jitter 180` (900s = 15 min).
+- If a recurring schedule for `/get-shit-done` is already active for this user, do not create a duplicate; report the existing schedule instead.
+- The user can disable polling by saying "no schedule", "one-shot", or "just this once". In that case, skip scheduling.
+
+State the chosen interval in the final response so the user can override.
 
 ## Quick Start
 
