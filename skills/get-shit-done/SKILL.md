@@ -18,6 +18,7 @@ These are hard gates:
 - Do not finish a task without creating and opening an HTML handoff report that states what was done, what was verified, and what the user still needs to do.
 - Do not skip completion email when `config/notifications.json` or email env vars provide a recipient.
 - Do not stop after one task when the user invoked drain/watch mode; keep going until the configured source has no unclaimed actionable items.
+- When useful improvements appear during work, append them to the source document under `Suggested Changes`.
 
 This skill is agent-framework agnostic. In Codex and Claude Code, use native goal mode for the overarching drain objective and for every task. For other agents, emulate goal mode with `skills/get-shit-done/scripts/goal_state.py` and `state/overarching_goal.md`.
 
@@ -79,13 +80,20 @@ python3 skills/get-shit-done/scripts/ledger.py assigned --config config/ledger.j
 ```
 
 10. Review the worker result, then verify with the narrowest meaningful check: tests, command output, file diff, browser QA, sent/draft status, or source-specific proof.
-11. Create and open the HTML handoff report:
+11. If the worker or inline execution surfaces useful next-step ideas, append them to the source under `Suggested Changes`:
+
+```bash
+python3 skills/get-shit-done/scripts/suggested_changes.py --config config/todo_sources.json --source-id '<source>' --task '<task>' --suggestion '<suggestion>'
+```
+
+In capability mode, use the same Notion/Google Docs/Sheets connector or tool that read the source.
+12. Create and open the HTML handoff report:
 
 ```bash
 python3 skills/get-shit-done/scripts/handoff_report.py --status done --task '<task>' --summary '<what happened>' --verification '<verification>' --needs-from-user '<anything needed from the user>'
 ```
 
-12. Mark the claimed item complete when the source supports it:
+13. Mark the claimed item complete when the source supports it:
    - Capability mode: use the same tool/skill/connector that claimed the task.
    - Local mode: run:
 
@@ -93,26 +101,26 @@ python3 skills/get-shit-done/scripts/handoff_report.py --status done --task '<ta
 python3 skills/get-shit-done/scripts/todo_source.py mark --config config/todo_sources.json --item-id '<item-id>' --status done
 ```
 
-13. Close the active task goal:
+14. Close the active task goal:
 
 ```bash
 python3 skills/get-shit-done/scripts/goal_state.py close --status done --summary '<result>' --verification '<verification>'
 ```
 
-14. Append a short note to `state/completions.md` with the task, result, verification, handoff report path, and any follow-up.
-15. Append a final ledger row:
+15. Append a short note to `state/completions.md` with the task, result, verification, handoff report path, suggestions, and any follow-up.
+16. Append a final ledger row:
 
 ```bash
 python3 skills/get-shit-done/scripts/ledger.py done --config config/ledger.json --task '<task>' --source-id '<source>' --item-id '<item>' --agent '<worker id>' --status done --summary '<result>'
 ```
 
-16. Send a completion email when a recipient is available through `config/notifications.json`, `TODO_SKILL_EMAIL_TO`, `GSD_EMAIL_TO`, `NOTIFY_EMAIL_TO`, `USER_EMAIL`, or `EMAIL`:
+17. Send a completion email when a recipient is available through `config/notifications.json`, `TODO_SKILL_EMAIL_TO`, `GSD_EMAIL_TO`, `NOTIFY_EMAIL_TO`, `USER_EMAIL`, or `EMAIL`:
 
 ```bash
 python3 skills/get-shit-done/scripts/notify.py done --config config/notifications.json --task '<task>' --body '<verification summary>'
 ```
 
-17. If blocked or human input is required, create and open an HTML handoff report with the exact request for the user, mark the source item blocked, close the local goal as blocked or `needs_human`, append a ledger row with `blocked` or `needs_human`, then send:
+18. If blocked or human input is required, append any useful suggestions, create and open an HTML handoff report with the exact request for the user, mark the source item blocked, close the local goal as blocked or `needs_human`, append a ledger row with `blocked` or `needs_human`, then send:
 
 ```bash
 python3 skills/get-shit-done/scripts/handoff_report.py --status needs_human --task '<task>' --summary '<blocker>' --needs-from-user '<exact request for the user>'
@@ -126,7 +134,7 @@ python3 skills/get-shit-done/scripts/todo_source.py mark --config config/todo_so
 python3 skills/get-shit-done/scripts/notify.py needs_human --config config/notifications.json --task '<task>' --body '<exact blocker or question>'
 ```
 
-18. Repeat from step 3 until no actionable item remains. If a continuous watcher is running, sleep for the configured interval, then drain again.
+19. Repeat from step 3 until no actionable item remains. If a continuous watcher is running, sleep for the configured interval, then drain again.
 
 ## Task Selection
 
