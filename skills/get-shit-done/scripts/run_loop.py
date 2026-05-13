@@ -216,7 +216,7 @@ Instructions:
 4. Load the local operating context for the workspace before task work: AGENTS.md, CLAUDE.md, SKILL.md, user-level agent instructions, installed skills, MCP/app connectors, and authenticated CLIs. Use those environment tools first unless they conflict with the claim-first/done-or-blocked protocol.
 5. Delegate execution to exactly one dedicated worker/sub-agent:
    - In Codex, spawn exactly one worker sub-agent for this task if spawn_agent is available, and set the worker to the best available Codex model, currently gpt-5.5, unless the user explicitly requested another model.
-   - In Claude Code, use Claude Code's native sub-agent/task-worker mechanism when available, defaulting to the opus model alias or the best available Claude Code model unless the user explicitly requested another model.
+   - In Claude Code, use Claude Code's native sub-agent/task-worker mechanism when available, defaulting to the opus model alias or the best available Claude Code model. Set CLAUDE_CODE_SUBAGENT_MODEL=opus when that environment control is available, unless the user explicitly requested another model.
    - In Hermes or OpenClaw, treat this one-shot agent run as the dedicated worker boundary; use the best available runtime model when model selection exists, and use OpenClaw xhigh thinking unless the user explicitly requested another thinking level.
    - Tell the worker not to mark the source done, close the goal, or send notifications; the watcher owns those forced closeout steps.
    - If no sub-agent or task-worker mechanism exists, return status needs_human with "No sub-agent mechanism available" instead of executing inline, unless the user explicitly allowed inline fallback for this run.
