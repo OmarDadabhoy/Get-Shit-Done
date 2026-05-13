@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 import time
@@ -135,6 +136,61 @@ def create_handoff_report(
     return Path(result.stdout.strip())
 
 
+def extract_suggestions(output: str) -> list[str]:
+    try:
+        parsed = json.loads(output)
+        values = parsed.get("suggested_changes") or parsed.get("suggestions") or []
+        if isinstance(values, str):
+            values = [values]
+        if isinstance(values, list):
+            return [str(value).strip() for value in values if str(value).strip()]
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"(?ims)^\s*suggested[_ ]changes\s*:?\s*(.*)$", output)
+    if not match:
+        return []
+    suggestions: list[str] = []
+    for line in match.group(1).splitlines():
+        stripped = line.strip()
+        if not stripped:
+            if suggestions:
+                break
+            continue
+        if re.match(r"(?i)^(status|summary|verification|needs_from_user|follow_up)\s*:", stripped):
+            break
+        cleaned = re.sub(r"^[-*]\s+", "", stripped)
+        cleaned = re.sub(r"^\d+[.)]\s+", "", cleaned).strip()
+        if cleaned.lower() not in {"none", "n/a", "nothing"}:
+            suggestions.append(cleaned)
+    return suggestions
+
+
+def append_suggestions(config_path: Path, task: dict[str, str], suggestions: list[str]) -> dict[str, str] | None:
+    if not suggestions:
+        return None
+    command = [
+        "python3",
+        str(SKILL_PATH / "scripts" / "suggested_changes.py"),
+        "--config",
+        str(config_path),
+        "--source-id",
+        task["source_id"],
+        "--task",
+        task["title"],
+    ]
+    for suggestion in suggestions:
+        command.extend(["--suggestion", suggestion])
+    result = subprocess.run(command, cwd=str(REPO_ROOT), check=False, text=True, capture_output=True)
+    if result.returncode != 0:
+        print(result.stderr or result.stdout or "failed to append suggested changes", file=sys.stderr)
+        return {"status": "failed"}
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"status": "appended", "output": result.stdout.strip()}
+
+
 def build_prompt(task: dict[str, str], config_path: Path) -> str:
     current_goal_path = STATE_DIR / "current_goal.md"
 
@@ -160,7 +216,8 @@ Instructions:
    - Tell the worker not to mark the source done, close the goal, or send notifications; the watcher owns those forced closeout steps.
    - If no sub-agent mechanism exists, execute the task inline.
 6. Verify the result with the narrowest meaningful check.
-7. Return a concise final answer with status, summary, verification, and needs_from_user. Exit 0 only when the task is done.
+7. If useful improvements occur to you while working, return them under suggested_changes as a short bullet list. These can be code, marketing, sales, ops, or process suggestions.
+8. Return a concise final answer with status, summary, verification, needs_from_user, and suggested_changes. Exit 0 only when the task is done.
 """
 
 
@@ -199,6 +256,8 @@ def claim_task(config_path: Path, task: dict[str, str], dry_run: bool) -> bool:
 def finalize_completed_task(config_path: Path, task: dict[str, str], result: subprocess.CompletedProcess[str], prompt_path: Path) -> None:
     output = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part).strip()
     verification = output[-4000:] if output else "agent command exited 0"
+    suggestions = extract_suggestions(output)
+    suggestion_result = append_suggestions(config_path, task, suggestions)
     mark_item(config_path, task["item_id"], "done")
     run_goal_state("close", "--status", "done", "--summary", "agent completed", "--verification", verification)
     subprocess.run(
@@ -239,12 +298,16 @@ def finalize_completed_task(config_path: Path, task: dict[str, str], result: sub
     body = verification
     if report_path:
         body = f"Handoff report: {report_path}\n\n{verification}"
+    if suggestion_result:
+        body = f"{body}\n\nSuggested changes: {json.dumps(suggestion_result)}"
     send_notification("done", task["title"], body)
 
 
 def finalize_blocked_task(config_path: Path, task: dict[str, str], result: subprocess.CompletedProcess[str], prompt_path: Path) -> None:
     output = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part).strip()
     reason = output[-4000:] if output else f"agent command exited {result.returncode}"
+    suggestions = extract_suggestions(output)
+    suggestion_result = append_suggestions(config_path, task, suggestions)
     try:
         mark_item(config_path, task["item_id"], "blocked")
     finally:
@@ -280,6 +343,8 @@ def finalize_blocked_task(config_path: Path, task: dict[str, str], result: subpr
         body = reason
         if report_path:
             body = f"Handoff report: {report_path}\n\n{reason}"
+        if suggestion_result:
+            body = f"{body}\n\nSuggested changes: {json.dumps(suggestion_result)}"
         send_notification("needs_human", task["title"], body)
 
 
