@@ -1,4 +1,4 @@
-# Get Shit Done
+# AI Slaves
 
 Slash-command skill for Codex or Claude Code. It reads a todo source, claims one item, runs it as a goal, marks it done or blocked, emails you, then keeps draining.
 
