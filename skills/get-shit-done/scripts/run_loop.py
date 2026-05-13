@@ -194,7 +194,7 @@ def append_suggestions(config_path: Path, task: dict[str, str], suggestions: lis
 def build_prompt(task: dict[str, str], config_path: Path) -> str:
     current_goal_path = STATE_DIR / "current_goal.md"
 
-    return f"""Use $get-shit-done.
+    return f"""Use the AI Slaves skill.
 
 Task: {task['title']}
 

@@ -52,7 +52,7 @@ def read_current() -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Maintain file-backed goal state for Get Shit Done.")
+    parser = argparse.ArgumentParser(description="Maintain file-backed goal state for AI Slaves.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     activate = subparsers.add_parser("activate")

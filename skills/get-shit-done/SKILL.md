@@ -1,9 +1,9 @@
 ---
-name: get-shit-done
-description: Work through the user's todo inbox. Use when the user invokes "/get-shit-done", "get shit done", "$get-shit-done", asks Codex or Claude Code to drain a todo list, Google Doc, Notion page, Apple Notes note, exported Messages/iMessage note, or configured inbox, or wants an agent to keep polling for new tasks and execute them with verification.
+name: ai-slaves
+description: This skill should be used when the user invokes "/ai-slaves", "/get-shit-done", "AI Slaves", "get shit done", asks Codex or Claude Code to drain a todo list, Google Doc, Notion page, Apple Notes note, exported Messages/iMessage note, or configured inbox, or wants an agent to keep polling for new tasks and execute them with verification.
 ---
 
-# Get Shit Done
+# AI Slaves
 
 ## Operating Contract
 
@@ -31,9 +31,9 @@ When invoked interactively, the skill must keep polling. Before exiting the firs
 
 - Default interval: **15 minutes**. Allowed range: **10-20 minutes**.
 - Tweakable: if the user names an interval (e.g. "every 30 min", "hourly", "every 5 min"), honor it. Otherwise default to 15.
-- In Claude Code: use `/schedule` to create a routine that re-invokes `/get-shit-done`, or `/loop 15m /get-shit-done` for the lighter-weight in-session variant. Prefer `/schedule` for persistence across sessions.
+- In Claude Code: use `/schedule` to create a routine that re-invokes `/ai-slaves`, or `/loop 15m /ai-slaves` for the lighter-weight in-session variant. Prefer `/schedule` for persistence across sessions.
 - In Codex or headless runtimes: use `skills/get-shit-done/scripts/run_loop.py --drain --interval 900 --jitter 180` (900s = 15 min).
-- If a recurring schedule for `/get-shit-done` is already active for this user, do not create a duplicate; report the existing schedule instead.
+- If a recurring schedule for `/ai-slaves` or `/get-shit-done` is already active for this user, do not create a duplicate; report the existing schedule instead.
 - The user can disable polling by saying "no schedule", "one-shot", or "just this once". In that case, skip scheduling.
 
 State the chosen interval in the final response so the user can override.

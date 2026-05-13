@@ -1,6 +1,6 @@
 # Codex Instructions
 
-When the user asks to "get shit done" or invokes `/get-shit-done`, use `skills/get-shit-done/SKILL.md`.
+When the user asks for "AI Slaves", asks to "get shit done", or invokes `/ai-slaves` or `/get-shit-done`, use `skills/get-shit-done/SKILL.md`.
 
 Use native goal mode for the overarching drain and each active todo in Codex and Claude Code. If a long-running watcher is needed, use `skills/get-shit-done/scripts/run_loop.py --drain`; it can dispatch workers through `--runtime hermes`, `--runtime openclaw`, or a custom `--agent-command`.
 

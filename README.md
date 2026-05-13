@@ -18,12 +18,13 @@ scripts/install-codex-symlink.sh
 ## Use
 
 ```text
+/ai-slaves
+/ai-slaves https://www.notion.so/...
+/ai-slaves https://docs.google.com/document/d/...
 /get-shit-done
-/get-shit-done https://www.notion.so/...
-/get-shit-done https://docs.google.com/document/d/...
 ```
 
-The slash command keeps its name (`/get-shit-done`) for muscle memory. The product is AI Slaves. The slash command uses existing Codex/Claude access first: MCP/app connectors, installed skills, browser tools, and authenticated CLIs.
+Use `/ai-slaves` as the primary command. `/get-shit-done` remains as a legacy alias. The command uses existing Codex/Claude access first: MCP/app connectors, installed skills, browser tools, and authenticated CLIs.
 
 ## Config
 
