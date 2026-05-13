@@ -13,6 +13,7 @@ This invocation is drain mode:
 - Use goal mode for the overarching drain and for every task.
 - Load the user's local environment first: project `AGENTS.md`, `CLAUDE.md`, `SKILL.md`, user-level instructions, installed skills, MCP/app connectors, and authenticated CLIs.
 - For each task, claim the source item in-progress before doing any work.
+- For each claimed task, create exactly one dedicated worker/sub-agent when the runtime supports it; do not execute inline unless the user explicitly allows inline fallback.
 - Never execute an unclaimed task.
 - Never mark a task done unless it was in-progress first.
 - Mark each task done or blocked in the source before moving on.

@@ -211,13 +211,14 @@ Instructions:
    - In Claude Code, use Claude Code native goal mode with this exact task.
    - In other agents, treat {current_goal_path} as the active fallback goal.
 4. Load the local operating context for the workspace before task work: AGENTS.md, CLAUDE.md, SKILL.md, user-level agent instructions, installed skills, MCP/app connectors, and authenticated CLIs. Use those environment tools first unless they conflict with the claim-first/done-or-blocked protocol.
-5. Delegate execution to a worker/sub-agent when the environment supports it:
+5. Delegate execution to exactly one dedicated worker/sub-agent:
    - In Codex, spawn exactly one worker sub-agent for this task if spawn_agent is available.
+   - In Claude Code, use Claude Code's native sub-agent/task-worker mechanism when available.
    - Tell the worker not to mark the source done, close the goal, or send notifications; the watcher owns those forced closeout steps.
-   - If no sub-agent mechanism exists, execute the task inline.
-6. Verify the result with the narrowest meaningful check.
-7. If useful improvements occur to you while working, return them under suggested_changes as a short bullet list. These can be code, marketing, sales, ops, or process suggestions.
-8. Return a concise final answer with status, summary, verification, needs_from_user, and suggested_changes. Exit 0 only when the task is done.
+   - If no sub-agent or task-worker mechanism exists, return status needs_human with "No sub-agent mechanism available" instead of executing inline, unless the user explicitly allowed inline fallback for this run.
+6. Verify the worker result with the narrowest meaningful check.
+7. If useful improvements occur while the worker is working, return them under suggested_changes as a short bullet list. These can be code, marketing, sales, ops, or process suggestions.
+8. Return a concise final answer with status, summary, verification, needs_from_user, and suggested_changes. Exit 0 only when the task is done by the worker/sub-agent.
 """
 
 

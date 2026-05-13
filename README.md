@@ -1,6 +1,6 @@
 # AI Slaves
 
-The AI that drains your todo list while you sleep. Slash-command skill for Codex or Claude Code. It reads a todo source, claims one item, runs it as a goal, marks it done or blocked, emails you, then keeps draining.
+The AI that drains your todo list while you sleep. Slash-command skill for Codex or Claude Code. It reads a todo source, claims one item, runs it as a goal in a dedicated worker/sub-agent, marks it done or blocked, emails you, then keeps draining.
 
 Live at [ai-slaves.com](https://ai-slaves.com). For the multi-worker orchestrator variant, see [ai-slaves-sweeper](https://github.com/OmarDadabhoy/ai-slaves-sweeper).
 
@@ -46,6 +46,6 @@ python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.js
 
 ## Rules
 
-Uses goal mode, claims items before work, marks them done or blocked, appends useful suggestions under `Suggested Changes`, opens an HTML handoff report, emails on completion, and skips in-progress/done/blocked items.
+Uses goal mode, claims items before work, creates one worker/sub-agent per task when available, marks them done or blocked, appends useful suggestions under `Suggested Changes`, opens an HTML handoff report, emails on completion, and skips in-progress/done/blocked items.
 
 Real config files are gitignored. Commit only `config/*.example.json`.

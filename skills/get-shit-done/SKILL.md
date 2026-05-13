@@ -7,11 +7,13 @@ description: Work through the user's todo inbox. Use when the user invokes "/get
 
 ## Operating Contract
 
-Drain the configured todo source until no actionable item remains. For every item: claim it in the source first, make it the active goal, delegate execution to one worker/sub-agent when available, verify the result, mark it done or blocked in the source, send email when available, and leave a concise audit trail.
+Drain the configured todo source until no actionable item remains. For every item: claim it in the source first, make it the active goal, delegate execution to exactly one dedicated worker/sub-agent, verify the result, mark it done or blocked in the source, send email when available, and leave a concise audit trail.
 
 These are hard gates:
 
 - Do not execute a task until the source item is marked in-progress.
+- Do not execute a claimed task inline when Codex, Claude Code, or the configured runtime can create a worker/sub-agent. Every Notion, Google Docs, and local-file task gets its own worker/sub-agent.
+- If no worker/sub-agent mechanism exists, stop with `needs_human` or blocked status instead of silently executing inline, unless the user explicitly permits inline fallback for that run.
 - Do not mark a task done until it was already in-progress.
 - Do not leave a completed or blocked task without updating the source.
 - Do not skip goal mode. Codex must use native goal mode with `create_goal` when available. Claude Code must use Claude Code native goal mode. Other agents use `goal_state.py`.
@@ -70,9 +72,11 @@ python3 skills/get-shit-done/scripts/todo_source.py claim --config config/todo_s
    - Claude Code: use Claude Code native goal mode with the claimed todo as the active objective.
    - Other agents: run `goal_state.py activate` with the todo, source id, item id, and location.
 7. Clarify only when the task cannot be executed safely or meaningfully without more input.
-8. Assign execution to a worker:
-   - Codex: spawn one worker sub-agent for the task when `spawn_agent` is available. Tell the worker it is not alone in the codebase and must not mark the source done or send notifications.
-   - Other agents: invoke the configured watcher agent command or perform the task inline if no delegation mechanism exists.
+8. Assign execution to a dedicated worker/sub-agent:
+   - Codex: spawn exactly one worker sub-agent for the claimed task when `spawn_agent` is available. Tell the worker it is not alone in the codebase and must not mark the source done, close the goal, or send notifications.
+   - Claude Code: use Claude Code's native sub-agent/task-worker mechanism when available with the same boundaries.
+   - Headless watcher mode: treat the configured `TODO_SKILL_AGENT_CMD` or `--agent-command` invocation as the worker boundary; that worker must create a sub-agent when its runtime supports one.
+   - If no worker/sub-agent mechanism exists, mark the task blocked or `needs_human` with "No sub-agent mechanism available" unless the user explicitly allowed inline fallback.
 9. Track the assignment in the ledger when `config/ledger.json` is enabled:
 
 ```bash
