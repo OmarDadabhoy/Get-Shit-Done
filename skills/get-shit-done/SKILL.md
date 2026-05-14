@@ -23,6 +23,7 @@ These are hard gates:
 - Do not skip completion email when `config/notifications.json` or email env vars provide a recipient.
 - Do not stop after one task when the user invoked drain/watch mode; keep going until the configured source has no unclaimed actionable items.
 - When useful improvements appear during work, append them to the source document under `Suggested Changes`. **North Star: every suggested change must increase revenue.** Filter every candidate suggestion through: does this drive revenue up, directly (more qualified leads, higher reply rate, higher conversion, higher price capture, faster sales cycle, more expansion or retention) or indirectly (product quality that compounds into retention, removing a blocker that frees the user's time for revenue work, fixing a public surface that prospects see)? If a suggestion cannot trace to revenue in one sentence, drop it. Lead each suggestion with the revenue mechanism (e.g. "Raises reply rate on X campaign because...", "Frees Y hours/week for outbound by..."), not the aesthetic or cleanup motivation.
+- Do not pad write-ups. Every handoff field, `Suggested Changes` item, completion email, and `state/completions.md` entry must follow **Write-Up Style (Required)** below: skimmable in 10 seconds, lead with the result, numbers and names over adjectives, no hedges or recap sentences.
 
 This skill is agent-framework agnostic. In Codex and Claude Code, use native goal mode for the overarching drain objective and for every task. For other agents, emulate goal mode with `skills/get-shit-done/scripts/goal_state.py` and `state/overarching_goal.md`.
 
@@ -39,9 +40,35 @@ When invoked interactively, the skill must keep polling. Before exiting the firs
 
 State the chosen interval in the final response so the user can override.
 
+## Write-Up Style (Required)
+
+Omar reads handoffs and completion notes in bulk and discards anything padded. Every user-facing field must be skimmable in under 10 seconds. This covers handoff `--summary`, `--verification`, `--needs-from-user`; `Suggested Changes` items; completion email body; and `state/completions.md` entries.
+
+Rules:
+
+- Lead with the result, not the process. "Sent draft to Sam." beats "I went to Gmail and composed a message and then..."
+- One short paragraph or 3-5 bullets max per field. If it does not fit, you are padding.
+- Cut hedges, recap sentences, and "I successfully..." openers. State facts.
+- Numbers and names over adjectives. "47 leads uploaded, 0 errors" beats "uploaded a good number of leads with no major issues".
+- Verification means the actual check, not a description of checking. Paste the count, URL, test name, command output, or file path.
+- `--needs-from-user` is the literal next action(s) in imperative voice. If nothing is needed, write "Nothing." Do not pad.
+- No em dashes or en dashes. Use commas, periods, or rewrite the sentence.
+- Plain English. Define or expand acronyms the first time unless they are obvious to Omar (Instantly, Apollo, AMF, Clay, Notion, Supabase are fine).
+
+Examples:
+
+- Bad summary: "I went through the list of leads carefully and uploaded each one to the campaign, making sure to validate the email addresses along the way."
+- Good summary: "Uploaded 47 leads to campaign c575ab6e. 0 errors. 2 skipped (already in workspace)."
+- Bad verification: "Verified that everything is working correctly by checking the campaign in Instantly."
+- Good verification: "GET /api/v2/campaigns/c575ab6e/leads returned 47 active leads."
+- Bad needs-from-user: "Whenever you have a moment, it would be great if you could go ahead and unpause the campaign at your convenience."
+- Good needs-from-user: "Unpause campaign c575ab6e in Instantly."
+
+The same style applies to anything the orchestrator writes back to the source (status notes, comments) and to the worker's reply that the orchestrator extracts text from. If the worker returns padded prose, the orchestrator must condense it before writing the handoff, not just paste it through.
+
 ## Quick Start
 
-From the TodoSkill repo, discover the next item:
+From the Ai-slaves repo, discover the next item:
 
 ```bash
 python3 skills/get-shit-done/scripts/todo_source.py next --config config/todo_sources.json
@@ -178,6 +205,12 @@ python3 skills/get-shit-done/scripts/ledger.py done --config config/ledger.json 
 python3 skills/get-shit-done/scripts/notify.py done --config config/notifications.json --task '<task>' --body '<verification summary>'
 ```
 
+   **Self-notification rule (recipient == omar@potarix.com):** SEND, do not draft. Drafts pile up in the Drafts folder and never surface as inbox events, so they are useless as notifications.
+   - Claude Code: use the `gws-gmail-send` skill directly (it sends, not drafts). Subject prefix `[GSD]`. contentType: text/html.
+   - Codex / headless / any runtime where `gws-gmail-send` is not exposed: fall back to `scripts/notify.py`, which sends via SMTP or shell mail command (it does not draft). Ensure `config/notifications.json` has `enabled: true` and a real recipient.
+   - Last-resort runtimes that only expose `mcp__claude_ai_Gmail__create_draft` (no send tool): a draft is the only option; flag this in the handoff so the user knows to check Drafts.
+   - For non-self recipients (other people, not Omar): drafts are still acceptable so the user can review before sending.
+
 18. If blocked or human input is required, append any useful suggestions, create and open an HTML handoff report with the exact request for the user, mark the source item blocked, close the local goal as blocked or `needs_human`, append a ledger row with `blocked` or `needs_human`, then send:
 
 ```bash
@@ -222,5 +255,52 @@ If a task requires credentials, paid services, 2FA, or production access that is
 Use `references/sources.md` for source setup details. The default source is a local Markdown file at `inbox/todo.md`.
 
 Google Docs, Notion, and Apple Notes support are opt-in sources. Google Docs and Notion can mark completed tasks when configured with write auth and `writeback: "mark_done"` or clear/archive task content with `writeback: "delete"`. Apple Notes uses macOS AppleScript, so macOS may prompt for automation permission. Direct iMessage database access is not enabled by default; prefer exporting or mirroring iMessage todos into the local Markdown inbox unless the user explicitly configures a safer source adapter.
+
+### Google Docs source (active for Omar since 2026-05-14)
+
+Live source: `https://docs.google.com/document/d/1KcVGUGb3vzMP1y8L1iDmgHU-GKnxBAe91oRwhBb8UsI/edit` (doc id `1KcVGUGb3vzMP1y8L1iDmgHU-GKnxBAe91oRwhBb8UsI`). Reasons it replaced Notion: Notion rewrote local `file:///private/tmp/...` paths to `https://www.notion.so` self-links between cycles.
+
+Read the doc:
+
+```bash
+gws docs documents get --params '{"documentId":"<id>"}' > /tmp/gdoc.raw
+# Strip the keyring-backend preamble line, then parse:
+python3 -c "import json,re,sys; raw=open('/tmp/gdoc.raw').read(); m=re.search(r'^\{', raw, re.MULTILINE); print(raw[m.start():])" > /tmp/gdoc.json
+```
+
+Tasks are bulleted list paragraphs. Each is a `paragraph` with a `bullet.listId` in the doc's body content. The list itself is rendered in the UI as checkboxes when Omar enabled the Checklist toolbar option, but the Google Docs REST API does NOT expose the checkbox checked state, no field for it. Do not try to "check" boxes through the API, it is not possible today.
+
+Three writes the orchestrator needs to do, all via `gws docs documents batchUpdate --params '{"documentId":"<id>"}' --json '{"requests":[...]}'`:
+
+1. Claim a task (mark in-progress). Append `(in-progress YYYY-MM-DD)` to the task body via `replaceAllText`. Pick a unique tail substring of the task body as the anchor:
+
+   ```json
+   {"replaceAllText":{"containsText":{"text":"<unique tail>","matchCase":true},"replaceText":"<unique tail> (in-progress 2026-05-14)"}}
+   ```
+
+2. Mark done. Two parts: append `(done YYYY-MM-DD, see /tmp/gsd-X.html)` and apply strikethrough to the paragraph range. Strikethrough is the substitute for "check the checkbox" since the API has no checkbox toggle. The paragraph range is `[startIndex, endIndex - 1)` for the structuralElement that holds the paragraph (use `endIndex - 1` to leave the paragraph-terminating newline unstruck):
+
+   ```json
+   {"replaceAllText":{"containsText":{"text":"<tail> (in-progress 2026-05-14)","matchCase":true},"replaceText":"<tail> (done 2026-05-14, see /tmp/gsd-X.html)"}},
+   {"updateTextStyle":{"range":{"startIndex":<si>,"endIndex":<ei-1>},"textStyle":{"strikethrough":true},"fields":"strikethrough"}}
+   ```
+
+3. Append Suggested Changes / Reminders. Do NOT use `gws docs +write`, it appends into the existing list and inherits the checkbox formatting. Instead build one batch that inserts plain text, strips inherited bullets, then re-applies `BULLET_DISC_CIRCLE_SQUARE` to just the bullet ranges:
+
+   ```json
+   {"deleteContentRange":{"range":{"startIndex":<old_section_start>,"endIndex":<old_section_end>}}},
+   {"insertText":{"location":{"index":<insert_at>},"text":"\nSuggested Changes\nbullet 1\nbullet 2\n..."}},
+   {"deleteParagraphBullets":{"range":{"startIndex":<insert_at>,"endIndex":<insert_end - 1>}}},
+   {"createParagraphBullets":{"range":{"startIndex":<bullets_start>,"endIndex":<bullets_end - 1>}, "bulletPreset":"BULLET_DISC_CIRCLE_SQUARE"}},
+   {"updateTextStyle":{"range":{"startIndex":<header_start>,"endIndex":<header_end - 1>},"textStyle":{"bold":true},"fields":"bold"}}
+   ```
+
+   The `deleteParagraphBullets` step is what breaks the inheritance from the task checkbox list. Without it, your new content shows up as more checkboxes.
+
+Tracking indices across a batch: each request operates on the document state AT EXECUTION TIME. Requests apply sequentially. So if your batch deletes a range and then inserts at the same position, the insert sees the post-delete state. The cleanest pattern: do all index-affecting writes (delete, insert) in one batch, then re-fetch the doc to get fresh indices before a second batch that does fine-grained styling.
+
+Idempotency: `replaceAllText` is safe to re-run, it just replaces 0 or more occurrences. `deleteContentRange` is NOT safe to re-run on the same range, you can either delete content you did not mean to or get an error. Always re-fetch before a second batch.
+
+Tasks that should NOT be marked done by the orchestrator: items whose `(in-progress)` tail says "ack" (informational notes from Omar that need acknowledgement, not work), items whose body explicitly says "once you eyeball" or similar human-in-the-loop requirement, and items that need an externally visible action you have not yet asked Omar to approve.
 
 MCP servers, app connectors, installed skills, and authenticated CLIs are runtime capabilities, not repo credentials. Use them when the current Codex/Claude session exposes them. Scripts in this repo cannot automatically see those capabilities unless they are run through an agent command that has them.

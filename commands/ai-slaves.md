@@ -5,7 +5,7 @@ argument-hint: [--once|--watch]
 
 Read and follow the AI Slaves skill.
 
-Use `/Users/omardadabhoy/Desktop/TodoSkill/skills/get-shit-done/SKILL.md` as the source of truth for this command.
+Use `/Users/omardadabhoy/Desktop/Ai-slaves/skills/get-shit-done/SKILL.md` as the source of truth for this command.
 
 This invocation is drain mode:
 
