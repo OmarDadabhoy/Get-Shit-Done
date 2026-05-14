@@ -151,7 +151,7 @@ def append_ledger(config_path: Path, args: argparse.Namespace) -> dict[str, Any]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Append task/agent state to the Get Shit Done ledger.")
+    parser = argparse.ArgumentParser(description="Append task/agent state to the AI Slaves ledger.")
     parser.add_argument("event", choices=["queued", "assigned", "running", "done", "blocked", "needs_human"])
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--task", required=True)

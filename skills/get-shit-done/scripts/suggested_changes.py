@@ -118,7 +118,7 @@ def append_suggestions(config_path: Path, source_id: str, task: str, suggestions
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Append Get Shit Done suggestions to the source document.")
+    parser = argparse.ArgumentParser(description="Append AI Slaves suggestions to the source document.")
     parser.add_argument("--config", default="config/todo_sources.json")
     parser.add_argument("--source-id", required=True)
     parser.add_argument("--task", required=True)

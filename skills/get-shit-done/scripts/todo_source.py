@@ -854,7 +854,7 @@ def mark_item(config_path: Path, item_id: str, status: str) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Read and update Get Shit Done todo sources.")
+    parser = argparse.ArgumentParser(description="Read and update AI Slaves todo sources.")
     parser.add_argument("command", choices=["list", "next", "mark", "claim"])
     parser.add_argument("--config", default="config/todo_sources.json")
     parser.add_argument("--item-id")

@@ -21,6 +21,9 @@ STATE_DIR = REPO_ROOT / "state"
 ATTEMPTS_PATH = STATE_DIR / "attempts.json"
 OVERARCHING_GOAL_JSON = STATE_DIR / "overarching_goal.json"
 OVERARCHING_GOAL_MD = STATE_DIR / "overarching_goal.md"
+DEFAULT_BEST_MODELS = {
+    "hermes": "opus",
+}
 
 
 def now() -> str:
@@ -194,7 +197,7 @@ def append_suggestions(config_path: Path, task: dict[str, str], suggestions: lis
 def build_prompt(task: dict[str, str], config_path: Path) -> str:
     current_goal_path = STATE_DIR / "current_goal.md"
 
-    return f"""Use $get-shit-done.
+    return f"""Use the AI Slaves skill.
 
 Task: {task['title']}
 
@@ -211,13 +214,15 @@ Instructions:
    - In Claude Code, use Claude Code native goal mode with this exact task.
    - In other agents, treat {current_goal_path} as the active fallback goal.
 4. Load the local operating context for the workspace before task work: AGENTS.md, CLAUDE.md, SKILL.md, user-level agent instructions, installed skills, MCP/app connectors, and authenticated CLIs. Use those environment tools first unless they conflict with the claim-first/done-or-blocked protocol.
-5. Delegate execution to a worker/sub-agent when the environment supports it:
-   - In Codex, spawn exactly one worker sub-agent for this task if spawn_agent is available.
+5. Delegate execution to exactly one dedicated worker/sub-agent:
+   - In Codex, spawn exactly one worker sub-agent for this task if spawn_agent is available, and set the worker to the best available Codex model, currently gpt-5.5, unless the user explicitly requested another model.
+   - In Claude Code, use Claude Code's native sub-agent/task-worker mechanism when available, defaulting to the opus model alias or the best available Claude Code model. Set CLAUDE_CODE_SUBAGENT_MODEL=opus when that environment control is available, unless the user explicitly requested another model.
+   - In Hermes or OpenClaw, treat this one-shot agent run as the dedicated worker boundary; use the best available runtime model when model selection exists, and use OpenClaw xhigh thinking unless the user explicitly requested another thinking level.
    - Tell the worker not to mark the source done, close the goal, or send notifications; the watcher owns those forced closeout steps.
-   - If no sub-agent mechanism exists, execute the task inline.
-6. Verify the result with the narrowest meaningful check.
-7. If useful improvements occur to you while working, return them under suggested_changes as a short bullet list. These can be code, marketing, sales, ops, or process suggestions.
-8. Return a concise final answer with status, summary, verification, needs_from_user, and suggested_changes. Exit 0 only when the task is done.
+   - If no sub-agent or task-worker mechanism exists, return status needs_human with "No sub-agent mechanism available" instead of executing inline, unless the user explicitly allowed inline fallback for this run.
+6. Verify the worker result with the narrowest meaningful check.
+7. If useful improvements occur while the worker is working, return them under suggested_changes as a short bullet list. These can be code, marketing, sales, ops, or process suggestions.
+8. Return a concise final answer with status, summary, verification, needs_from_user, and suggested_changes. Exit 0 only when the task is done by the worker/sub-agent.
 """
 
 
@@ -230,7 +235,38 @@ def write_prompt(task: dict[str, str], config_path: Path) -> Path:
     return prompt_path
 
 
-def run_agent(command_template: str, prompt_path: Path, task: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def run_agent(
+    command_template: str | None,
+    prompt_path: Path,
+    task: dict[str, str],
+    runtime: str,
+    openclaw_agent: str | None = None,
+    openclaw_to: str | None = None,
+    openclaw_local: bool = False,
+    openclaw_thinking: str | None = None,
+    timeout: int | None = None,
+    model: str | None = None,
+    hermes_skills: list[str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    if command_template:
+        return run_custom_agent(command_template, prompt_path, task)
+
+    prompt = prompt_path.read_text(encoding="utf-8")
+    command = runtime_command(
+        runtime,
+        prompt,
+        openclaw_agent=openclaw_agent,
+        openclaw_to=openclaw_to,
+        openclaw_local=openclaw_local,
+        openclaw_thinking=openclaw_thinking,
+        timeout=timeout,
+        model=model,
+        hermes_skills=hermes_skills or [],
+    )
+    return subprocess.run(command, cwd=str(REPO_ROOT), check=False, text=True, capture_output=True)
+
+
+def run_custom_agent(command_template: str, prompt_path: Path, task: dict[str, str]) -> subprocess.CompletedProcess[str]:
     command = command_template.format(
         prompt_file=str(prompt_path),
         skill_path=str(SKILL_PATH),
@@ -238,6 +274,62 @@ def run_agent(command_template: str, prompt_path: Path, task: dict[str, str]) ->
         task_json=json.dumps(task),
     )
     return subprocess.run(command, shell=True, cwd=str(REPO_ROOT), check=False, text=True, capture_output=True)
+
+
+def runtime_command(
+    runtime: str,
+    prompt: str,
+    openclaw_agent: str | None = None,
+    openclaw_to: str | None = None,
+    openclaw_local: bool = False,
+    openclaw_thinking: str | None = None,
+    timeout: int | None = None,
+    model: str | None = None,
+    hermes_skills: list[str] | None = None,
+) -> list[str]:
+    if runtime == "hermes":
+        command = ["hermes", "chat"]
+        for skill in hermes_skills or []:
+            if skill:
+                command.extend(["-s", skill])
+        effective_model = model if model is not None else default_best_model(runtime)
+        if effective_model:
+            command.extend(["--model", effective_model])
+        command.extend(["-q", prompt])
+        return command
+
+    if runtime == "openclaw":
+        agent = openclaw_agent or os.environ.get("OPENCLAW_AGENT")
+        target = openclaw_to or os.environ.get("OPENCLAW_TO")
+        thinking = openclaw_thinking if openclaw_thinking is not None else os.environ.get("OPENCLAW_THINKING", "xhigh")
+        if not agent and not target:
+            raise SystemExit("--runtime openclaw requires --openclaw-agent/OPENCLAW_AGENT or --openclaw-to/OPENCLAW_TO.")
+        command = ["openclaw", "agent"]
+        if agent:
+            command.extend(["--agent", agent])
+        if target:
+            command.extend(["--to", target])
+        if openclaw_local:
+            command.append("--local")
+        if thinking:
+            command.extend(["--thinking", thinking])
+        if timeout:
+            command.extend(["--timeout", str(timeout)])
+        command.extend(["--message", prompt])
+        return command
+
+    raise SystemExit(f"Unsupported runtime: {runtime}. Use custom, hermes, or openclaw.")
+
+
+def default_best_model(runtime: str) -> str | None:
+    if runtime == "hermes":
+        return (
+            os.environ.get("TODO_SKILL_MODEL")
+            or os.environ.get("GSD_HERMES_MODEL")
+            or os.environ.get("HERMES_MODEL")
+            or DEFAULT_BEST_MODELS["hermes"]
+        )
+    return os.environ.get("TODO_SKILL_MODEL")
 
 
 def claim_task(config_path: Path, task: dict[str, str], dry_run: bool) -> bool:
@@ -348,7 +440,7 @@ def finalize_blocked_task(config_path: Path, task: dict[str, str], result: subpr
         send_notification("needs_human", task["title"], body)
 
 
-def handle_once(config_path: Path, agent_command: str | None, repeat_seen: bool, dry_run: bool) -> int:
+def handle_once(args: argparse.Namespace, config_path: Path, repeat_seen: bool, dry_run: bool) -> int:
     items = collect_items(config_path)
     if not items:
         print("No incomplete todo items found.")
@@ -394,7 +486,7 @@ def handle_once(config_path: Path, agent_command: str | None, repeat_seen: bool,
         write_attempts(attempts)
 
     print(f"Prepared prompt: {prompt_path}")
-    if not agent_command:
+    if not args.agent_command and args.runtime == "custom":
         print(prompt_path.read_text(encoding="utf-8"))
         return 0
 
@@ -402,7 +494,19 @@ def handle_once(config_path: Path, agent_command: str | None, repeat_seen: bool,
         print("Dry run; agent command was not executed.")
         return 0
 
-    result = run_agent(agent_command, prompt_path, task)
+    result = run_agent(
+        args.agent_command,
+        prompt_path,
+        task,
+        args.runtime,
+        openclaw_agent=args.openclaw_agent,
+        openclaw_to=args.openclaw_to,
+        openclaw_local=args.openclaw_local,
+        timeout=args.runtime_timeout,
+        openclaw_thinking=args.openclaw_thinking,
+        model=args.model,
+        hermes_skills=args.hermes_skill,
+    )
     if result.returncode == 0:
         finalize_completed_task(config_path, task, result, prompt_path)
         return 0
@@ -411,11 +515,11 @@ def handle_once(config_path: Path, agent_command: str | None, repeat_seen: bool,
     return 0
 
 
-def handle_drain(config_path: Path, agent_command: str | None, repeat_seen: bool) -> int:
+def handle_drain(args: argparse.Namespace, config_path: Path, repeat_seen: bool) -> int:
     write_overarching_goal("active")
     handled = 0
     while True:
-        exit_code = handle_once(config_path, agent_command, repeat_seen, False)
+        exit_code = handle_once(args, config_path, repeat_seen, False)
         if exit_code != 0:
             summary = f"Drain finished after {handled} task(s); no unclaimed actionable tasks remain."
             write_overarching_goal("done", summary)
@@ -434,20 +538,28 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--drain", action="store_true", help="Keep claiming and dispatching tasks until no actionable todos remain.")
     parser.add_argument("--agent-command", default=os.environ.get("TODO_SKILL_AGENT_CMD"))
+    parser.add_argument("--runtime", choices=["custom", "hermes", "openclaw"], default=os.environ.get("TODO_SKILL_RUNTIME", "custom"))
+    parser.add_argument("--model", default=os.environ.get("TODO_SKILL_MODEL"))
+    parser.add_argument("--runtime-timeout", type=int, default=int(os.environ.get("TODO_SKILL_RUNTIME_TIMEOUT", "0")) or None)
+    parser.add_argument("--hermes-skill", action="append", default=os.environ.get("HERMES_SKILLS", "").split(",") if os.environ.get("HERMES_SKILLS") else [])
+    parser.add_argument("--openclaw-agent", default=os.environ.get("OPENCLAW_AGENT"))
+    parser.add_argument("--openclaw-to", default=os.environ.get("OPENCLAW_TO"))
+    parser.add_argument("--openclaw-local", action="store_true", default=os.environ.get("OPENCLAW_LOCAL", "").lower() in {"1", "true", "yes"})
+    parser.add_argument("--openclaw-thinking", default=os.environ.get("OPENCLAW_THINKING"))
     args = parser.parse_args()
 
     config_path = Path(args.config).expanduser().resolve()
 
-    if not args.agent_command and not args.dry_run:
-        raise SystemExit("--agent-command or TODO_SKILL_AGENT_CMD is required unless --dry-run is set.")
+    if not args.agent_command and args.runtime == "custom" and not args.dry_run:
+        raise SystemExit("--agent-command, TODO_SKILL_AGENT_CMD, or --runtime hermes|openclaw is required unless --dry-run is set.")
     if args.drain and args.dry_run:
         raise SystemExit("--drain is not supported with --dry-run because dry-run does not claim or complete tasks.")
 
     while True:
         if args.drain:
-            exit_code = handle_drain(config_path, args.agent_command, args.repeat_seen)
+            exit_code = handle_drain(args, config_path, args.repeat_seen)
         else:
-            exit_code = handle_once(config_path, args.agent_command, args.repeat_seen, args.dry_run)
+            exit_code = handle_once(args, config_path, args.repeat_seen, args.dry_run)
         if args.once:
             return exit_code
         wait_seconds = args.interval + (random.randint(0, args.jitter) if args.jitter > 0 else 0)

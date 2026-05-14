@@ -1,4 +1,4 @@
 interface:
-  display_name: "Get Shit Done"
+  display_name: "AI Slaves"
   short_description: "Work through a live todo inbox"
-  default_prompt: "Use $get-shit-done to pick the next todo from my configured inbox, set the goal, and carry it through to verification."
+  default_prompt: "Use the AI Slaves skill to pick the next todo from my configured inbox, set the goal, and carry it through to verification."

@@ -1,26 +1,43 @@
 ---
-name: get-shit-done
-description: Work through the user's todo inbox. Use when the user invokes "/get-shit-done", "get shit done", "$get-shit-done", asks Codex or Claude Code to drain a todo list, Google Doc, Notion page, Apple Notes note, exported Messages/iMessage note, or configured inbox, or wants an agent to keep polling for new tasks and execute them with verification.
+name: ai-slaves
+description: This skill should be used when the user invokes "/ai-slaves", "/get-shit-done", "AI Slaves", "get shit done", asks Codex or Claude Code to drain a todo list, Google Doc, Notion page, Apple Notes note, exported Messages/iMessage note, or configured inbox, or wants an agent to keep polling for new tasks and execute them with verification.
 ---
 
-# Get Shit Done
+# AI Slaves
 
 ## Operating Contract
 
-Drain the configured todo source until no actionable item remains. For every item: claim it in the source first, make it the active goal, delegate execution to one worker/sub-agent when available, verify the result, mark it done or blocked in the source, send email when available, and leave a concise audit trail.
+Drain the configured todo source until no actionable item remains. For every item: claim it in the source first, make it the active goal, delegate execution to exactly one dedicated worker/sub-agent, verify the result, mark it done or blocked in the source, send email when available, and leave a concise audit trail.
 
 These are hard gates:
 
 - Do not execute a task until the source item is marked in-progress.
+- Do not execute a claimed task inline when Codex, Claude Code, or the configured runtime can create a worker/sub-agent. Every Notion, Google Docs, and local-file task gets its own worker/sub-agent.
+- Do not create lower-tier workers by default. Every worker/sub-agent must use the best available model unless the user explicitly requests a different model, cheaper mode, faster mode, or runtime default.
+- If no worker/sub-agent mechanism exists, stop with `needs_human` or blocked status instead of silently executing inline, unless the user explicitly permits inline fallback for that run.
 - Do not mark a task done until it was already in-progress.
 - Do not leave a completed or blocked task without updating the source.
-- Do not skip goal mode. Codex must use native goal mode with `create_goal` when available. Claude Code must use Claude Code native goal mode. Other agents use `goal_state.py`.
+- Do not skip goal mode. Codex must use native goal mode with `create_goal` when available. Claude Code must use Claude Code native goal mode (`/goal`). Other agents use `goal_state.py`.
+- Do not skip the recurring schedule. On any interactive invocation, ensure a recurring drain check is scheduled (default every 15 min, allowed range 10-20 min, user-tweakable). If one is already active, leave it alone.
 - Do not finish a task without creating and opening an HTML handoff report that states what was done, what was verified, and what the user still needs to do.
 - Do not skip completion email when `config/notifications.json` or email env vars provide a recipient.
 - Do not stop after one task when the user invoked drain/watch mode; keep going until the configured source has no unclaimed actionable items.
 - When useful improvements appear during work, append them to the source document under `Suggested Changes`.
 
 This skill is agent-framework agnostic. In Codex and Claude Code, use native goal mode for the overarching drain objective and for every task. For other agents, emulate goal mode with `skills/get-shit-done/scripts/goal_state.py` and `state/overarching_goal.md`.
+
+## Recurring Schedule (Required)
+
+When invoked interactively, the skill must keep polling. Before exiting the first drain cycle, ensure a recurring check is scheduled:
+
+- Default interval: **15 minutes**. Allowed range: **10-20 minutes**.
+- Tweakable: if the user names an interval (e.g. "every 30 min", "hourly", "every 5 min"), honor it. Otherwise default to 15.
+- In Claude Code: use `/schedule` to create a routine that re-invokes `/ai-slaves`, or `/loop 15m /ai-slaves` for the lighter-weight in-session variant. Prefer `/schedule` for persistence across sessions.
+- In Codex or headless runtimes: use `skills/get-shit-done/scripts/run_loop.py --drain --interval 900 --jitter 180` (900s = 15 min).
+- If a recurring schedule for `/ai-slaves` or `/get-shit-done` is already active for this user, do not create a duplicate; report the existing schedule instead.
+- The user can disable polling by saying "no schedule", "one-shot", or "just this once". In that case, skip scheduling.
+
+State the chosen interval in the final response so the user can override.
 
 ## Quick Start
 
@@ -37,7 +54,14 @@ TODO_SKILL_AGENT_CMD='your-agent-command {prompt_file}' \
 python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --drain --interval 1800 --jitter 600
 ```
 
-The watcher requires `TODO_SKILL_AGENT_CMD` or `--agent-command` for live execution. Use `--dry-run` when you only want rendered prompts. A skill alone cannot keep an agent alive.
+Built-in external runtimes are also available:
+
+```bash
+python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --drain --runtime hermes
+python3 skills/get-shit-done/scripts/run_loop.py --config config/todo_sources.json --drain --runtime openclaw --openclaw-agent ops
+```
+
+The watcher requires `TODO_SKILL_AGENT_CMD`, `--agent-command`, or `--runtime hermes|openclaw` for live execution. Use `--dry-run` when you only want rendered prompts. A skill alone cannot keep an agent alive.
 
 ## Workflow
 
@@ -70,9 +94,13 @@ python3 skills/get-shit-done/scripts/todo_source.py claim --config config/todo_s
    - Claude Code: use Claude Code native goal mode with the claimed todo as the active objective.
    - Other agents: run `goal_state.py activate` with the todo, source id, item id, and location.
 7. Clarify only when the task cannot be executed safely or meaningfully without more input.
-8. Assign execution to a worker:
-   - Codex: spawn one worker sub-agent for the task when `spawn_agent` is available. Tell the worker it is not alone in the codebase and must not mark the source done or send notifications.
-   - Other agents: invoke the configured watcher agent command or perform the task inline if no delegation mechanism exists.
+8. Assign execution to a dedicated worker/sub-agent:
+   - Codex: spawn exactly one worker sub-agent for the claimed task when `spawn_agent` is available. Set the worker model to the best available Codex model, currently `gpt-5.5`, unless the user explicitly requested a different model. Tell the worker it is not alone in the codebase and must not mark the source done, close the goal, or send notifications.
+   - Claude Code: use Claude Code's native sub-agent/task-worker mechanism when available with the same boundaries. Use the `opus` model alias or the best available Claude Code model, and set `CLAUDE_CODE_SUBAGENT_MODEL=opus` when that environment control is available, unless the user explicitly requested something else.
+   - Hermes: use `--runtime hermes` or an equivalent Hermes one-shot `hermes chat -q` worker command. Default model selection to the best available model when the runtime accepts a model flag, and preload Hermes skills with `--hermes-skill` when needed.
+   - OpenClaw: use `--runtime openclaw --openclaw-agent <name>` or `OPENCLAW_AGENT=<name>` so each claimed task is sent as one OpenClaw agent turn. Use the configured best OpenClaw model and default to `--thinking xhigh` unless the user explicitly requested another thinking level.
+   - Headless watcher mode: treat the configured `TODO_SKILL_AGENT_CMD` or `--agent-command` invocation as the worker boundary; that worker must create a sub-agent when its runtime supports one.
+   - If no worker/sub-agent mechanism exists, mark the task blocked or `needs_human` with "No sub-agent mechanism available" unless the user explicitly allowed inline fallback.
 9. Track the assignment in the ledger when `config/ledger.json` is enabled:
 
 ```bash

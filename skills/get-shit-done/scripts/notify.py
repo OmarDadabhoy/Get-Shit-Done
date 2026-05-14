@@ -43,7 +43,7 @@ def subject(config: dict, event: str, task: str, explicit: str) -> str:
         base = f"Task completed: {task}"
     else:
         base = f"Input needed: {task}"
-    return f"{config.get('subject_prefix', '[Get Shit Done]')} {base}".strip()
+    return f"{config.get('subject_prefix', '[AI Slaves]')} {base}".strip()
 
 
 def body_text(event: str, task: str, body: str) -> str:
@@ -110,7 +110,7 @@ def send_smtp(config: dict, message_subject: str, message_body: str, message_to:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Send Get Shit Done email notifications.")
+    parser = argparse.ArgumentParser(description="Send AI Slaves email notifications.")
     parser.add_argument("event", choices=["done", "needs_human"])
     parser.add_argument("--config", default="config/notifications.json")
     parser.add_argument("--task", required=True)
