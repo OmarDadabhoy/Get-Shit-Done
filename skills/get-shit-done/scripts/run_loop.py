@@ -196,8 +196,27 @@ def append_suggestions(config_path: Path, task: dict[str, str], suggestions: lis
 
 def build_prompt(task: dict[str, str], config_path: Path) -> str:
     current_goal_path = STATE_DIR / "current_goal.md"
+    overarching_goal_path = STATE_DIR / "overarching_goal.md"
 
     return f"""Use the AI Slaves skill.
+
+## Goal Mode (do this FIRST, before reading anything else)
+
+Your active goal: {task['title']}
+Parent drain goal: Clear all actionable tasks from the configured todo sources.
+Goal file (fallback): {current_goal_path}
+Drain goal file (fallback): {overarching_goal_path}
+
+Activation, runtime-specific (pick the row matching your runtime, execute it as your first action this turn):
+- Codex: call `create_goal("{task['title']}")` now. If a prior goal is open, call `close_goal` first.
+- Claude Code: call `TaskCreate({{subject: "{task['title']}", description: "<one-line context>"}})` then `TaskUpdate(taskId, status: "in_progress")` as your very first tool calls. This is Claude Code's `create_goal` analog. Close with `TaskUpdate(taskId, status: "completed")` at end of turn. Also restate the goal verbatim in your first reply line as `Goal: {task['title']}`.
+- Hermes: read {current_goal_path} and acknowledge `Goal: {task['title']}` in your first reply line.
+- OpenClaw: acknowledge `Goal: {task['title']}` in your first turn and reference {current_goal_path}.
+- Any other runtime: state the goal verbatim and treat it as your only objective.
+
+If your runtime exposes no goal-mode API and the fallback files above are missing, stop with status `needs_human` and the blocker text "Goal mode unavailable in this runtime".
+
+## Task
 
 Task: {task['title']}
 
@@ -209,20 +228,16 @@ Source:
 Instructions:
 1. Read {SKILL_PATH / 'SKILL.md'} if the skill is not already loaded.
 2. This source item has already been claimed in-progress by the watcher. Do not start a different task until this one is done, blocked, or needs human input.
-3. Activate goal mode before doing any work:
-   - In Codex, call create_goal with this exact task if goal tools are available.
-   - In Claude Code, use Claude Code native goal mode with this exact task.
-   - In other agents, treat {current_goal_path} as the active fallback goal.
-4. Load the local operating context for the workspace before task work: AGENTS.md, CLAUDE.md, SKILL.md, user-level agent instructions, installed skills, MCP/app connectors, and authenticated CLIs. Use those environment tools first unless they conflict with the claim-first/done-or-blocked protocol.
-5. Delegate execution to exactly one dedicated worker/sub-agent:
-   - In Codex, spawn exactly one worker sub-agent for this task if spawn_agent is available, and set the worker to the best available Codex model, currently gpt-5.5, unless the user explicitly requested another model.
+3. Load the local operating context for the workspace before task work: AGENTS.md, CLAUDE.md, SKILL.md, user-level agent instructions, installed skills, MCP/app connectors, and authenticated CLIs. Use those environment tools first unless they conflict with the claim-first/done-or-blocked protocol.
+4. Delegate execution to exactly one dedicated worker/sub-agent. The worker prompt MUST begin with a goal-mode preamble identical in spirit to the one above (active goal, parent drain goal, per-runtime activation, "first action this turn" wording). This is what makes goal mode actually fire inside the worker.
+   - In Codex, spawn exactly one worker sub-agent for this task if spawn_agent is available, and set the worker to the best available Codex model unless the user explicitly requested another model.
    - In Claude Code, use Claude Code's native sub-agent/task-worker mechanism when available, defaulting to the opus model alias or the best available Claude Code model. Set CLAUDE_CODE_SUBAGENT_MODEL=opus when that environment control is available, unless the user explicitly requested another model.
    - In Hermes or OpenClaw, treat this one-shot agent run as the dedicated worker boundary; use the best available runtime model when model selection exists, and use OpenClaw xhigh thinking unless the user explicitly requested another thinking level.
    - Tell the worker not to mark the source done, close the goal, or send notifications; the watcher owns those forced closeout steps.
    - If no sub-agent or task-worker mechanism exists, return status needs_human with "No sub-agent mechanism available" instead of executing inline, unless the user explicitly allowed inline fallback for this run.
-6. Verify the worker result with the narrowest meaningful check.
-7. If useful improvements occur while the worker is working, return them under suggested_changes as a short bullet list. These can be code, marketing, sales, ops, or process suggestions.
-8. Return a concise final answer with status, summary, verification, needs_from_user, and suggested_changes. Exit 0 only when the task is done by the worker/sub-agent.
+5. Verify the worker result with the narrowest meaningful check.
+6. If useful improvements occur while the worker is working, return them under suggested_changes as a short bullet list. Apply the revenue-North-Star filter from SKILL.md: every suggestion must trace to revenue (more leads, higher conversion, faster cycle, retention/expansion, prospect-facing quality fixes, automation that frees the user's calendar, killing money-losing efforts). Drop suggestions that can't trace to revenue.
+7. Return a concise final answer with status, summary, verification, needs_from_user, and suggested_changes. Exit 0 only when the task is done by the worker/sub-agent.
 """
 
 

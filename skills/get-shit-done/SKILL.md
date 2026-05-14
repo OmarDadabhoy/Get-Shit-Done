@@ -17,7 +17,7 @@ These are hard gates:
 - If no worker/sub-agent mechanism exists, stop with `needs_human` or blocked status instead of silently executing inline, unless the user explicitly permits inline fallback for that run.
 - Do not mark a task done until it was already in-progress.
 - Do not leave a completed or blocked task without updating the source.
-- Do not skip goal mode. Codex must use native goal mode with `create_goal` when available. Claude Code must use Claude Code native goal mode (`/goal`). Other agents use `goal_state.py`.
+- Do not skip goal mode. Codex must use native goal mode with `create_goal` when available. Claude Code must use the `TaskCreate` tool (Claude Code's goal-mode primitive: each task is a persistent named objective with `pending` / `in_progress` / `completed` lifecycle). Other agents use `goal_state.py`.
 - Do not skip the recurring schedule. On any interactive invocation, ensure a recurring drain check is scheduled (default every 15 min, allowed range 10-20 min, user-tweakable). If one is already active, leave it alone.
 - Do not finish a task without creating and opening an HTML handoff report that states what was done, what was verified, and what the user still needs to do. On macOS, open the handoff in the background so it does not steal focus: `open -g <path>`. On Linux use `xdg-open <path>` (no background flag needed). The `handoff_report.py` helper already handles this.
 - Do not skip completion email when `config/notifications.json` or email env vars provide a recipient.
@@ -72,10 +72,14 @@ The watcher requires `TODO_SKILL_AGENT_CMD`, `--agent-command`, or `--runtime he
    - Follow the user's local environment instructions unless they conflict with this skill's claim-first, goal-mode, source-writeback, or completion-email gates.
    - Do not ask the user to reconnect a source that is already available through the agent runtime.
    - Local JSON config is for headless scripts, polling, or agent runtimes that do not expose the needed capability.
-2. Activate the overarching drain goal:
-   - Codex: call `create_goal` for "Clear all actionable tasks from the configured todo sources" when goal tools are available and no active goal exists.
-   - Claude Code: use Claude Code native goal mode for the same overarching objective.
-   - Other agents: write or use `state/overarching_goal.md`.
+2. Activate the overarching drain goal. This step is mandatory and runtime-specific. Pick the row that matches the runtime you are in and execute the listed call before reading any todo. Always also write the fallback file so other tooling can inspect goal state:
+   - Codex: call the `create_goal` tool with title `"Clear all actionable tasks from the configured todo sources"` as your very next action. If goal tools are not exposed in this Codex session, say so out loud and continue with the fallback file only.
+   - Claude Code: call the `TaskCreate` tool with `subject: "Drain Agent TODO Notion page"` (or the configured source name) and `description: "Clear all actionable tasks from the configured todo sources"`, then `TaskUpdate(taskId, status: "in_progress")` so the drain shows as active in the harness task list. This is Claude Code's `create_goal` analog. Mark it `completed` only at Step 19. If `TaskCreate` is not exposed in this sub-agent context, restate the goal verbatim in your first user-facing line and treat it as your only objective.
+   - Hermes: write the goal to `state/overarching_goal.md` via `goal_state.py activate-drain` and include the goal text in the first system block of every Hermes worker prompt so the runtime carries it across turns.
+   - OpenClaw: use `goal_state.py activate-drain`, then include the contents of `state/overarching_goal.md` inline in every OpenClaw agent turn (`run_loop.py` already embeds the goal in the prompt body, since OpenClaw has no separate context-file flag).
+   - Any other runtime: `python3 skills/get-shit-done/scripts/goal_state.py activate-drain` and include the goal text at the top of the worker prompt.
+
+   Whichever runtime is active, the fallback file `state/overarching_goal.md` must exist and be current for the duration of the drain; close it with `goal_state.py close-drain` only after the queue is empty.
 3. Load the next incomplete todo:
    - Capability mode: read the configured or user-mentioned page/doc/sheet/inbox with the best existing runtime capability and skip items already marked in-progress/done/blocked.
    - Local mode: read `config/todo_sources.json` and load the next incomplete todo with `todo_source.py next`.
@@ -89,14 +93,37 @@ python3 skills/get-shit-done/scripts/todo_source.py claim --config config/todo_s
 ```
 
    If the claim fails because the item is already in-progress/done/blocked, skip it and pick the next item.
-6. Turn the claimed todo into the active task goal before execution:
-   - Codex: call `create_goal` with the todo as the concrete objective when goal tools are available and no active goal already exists.
-   - Claude Code: use Claude Code native goal mode with the claimed todo as the active objective.
-   - Other agents: run `goal_state.py activate` with the todo, source id, item id, and location.
+6. Turn the claimed todo into the active task goal before any worker is spawned. Same runtime-specific rule as Step 2, but for the per-task goal. Always also write `state/current_goal.md` via `goal_state.py activate` so the worker prompt can reference it.
+   - Codex: call `create_goal` with the claimed todo title as the concrete objective. If a goal is already open, close it first with `close_goal` so the new task is the sole active objective.
+   - Claude Code: call `TaskCreate({subject: "<claimed todo title>", description: "<one-line context>", activeForm: "<present-continuous phrasing>"})`, then `TaskUpdate(taskId, status: "in_progress")` before dispatching the worker. This is Claude Code's `create_goal` analog and is what shows up in the harness task tracker. For sub-agents spawned via the Agent tool (which inherit the parent task list but cannot create their own top-level tasks reliably), embed the goal text verbatim as the first line of the sub-agent prompt and tell the worker "this is your only objective for this turn, do not expand scope."
+   - Hermes: `goal_state.py activate --task '<todo>' --source-id '<source>' --item-id '<item>'` then pass the resulting `state/current_goal.md` into the Hermes worker prompt's system block.
+   - OpenClaw: `goal_state.py activate ...` then include the contents of `state/current_goal.md` inline in the OpenClaw agent turn (run_loop.py embeds it in the prompt body, no separate flag needed).
+   - Any other runtime: `goal_state.py activate ...` and include the goal text at the top of the worker prompt.
+
+   The goal must be closed (Step 14) before claiming the next todo. Never run two task-goals in parallel for the same drain.
 7. Clarify only when the task cannot be executed safely or meaningfully without more input.
-8. Assign execution to a dedicated worker/sub-agent:
-   - Codex: spawn exactly one worker sub-agent for the claimed task when `spawn_agent` is available. Set the worker model to the best available Codex model, currently `gpt-5.5`, unless the user explicitly requested a different model. Tell the worker it is not alone in the codebase and must not mark the source done, close the goal, or send notifications.
-   - Claude Code: use Claude Code's native sub-agent/task-worker mechanism when available with the same boundaries. Use the `opus` model alias or the best available Claude Code model, and set `CLAUDE_CODE_SUBAGENT_MODEL=opus` when that environment control is available, unless the user explicitly requested something else.
+8. Assign execution to a dedicated worker/sub-agent. Every worker prompt MUST begin with the goal-mode preamble below before any task instruction. The preamble is what makes goal mode actually fire inside the worker, not just inside the orchestrator.
+
+   **Worker prompt preamble (required, verbatim block at top of every worker prompt):**
+
+   ```
+   ## Goal Mode (do this first, before reading anything else)
+   Your active goal: <claimed todo title>
+   Parent drain goal: Clear all actionable tasks from the configured todo sources.
+   Goal file (fallback): state/current_goal.md
+   Drain goal file (fallback): state/overarching_goal.md
+
+   Activation, runtime-specific:
+   - Codex: call create_goal("<claimed todo title>") as your first action.
+   - Claude Code: call TaskCreate({subject: "<claimed todo title>", description: "<one-line context>"}) then TaskUpdate(taskId, status: "in_progress") as your first action. This is Claude Code's create_goal analog.
+   - Hermes: read state/current_goal.md and acknowledge the goal in your first reply line.
+   - OpenClaw: acknowledge the goal in your first turn and reference state/current_goal.md.
+   Then proceed to the task below. Do not start a second task in this turn. Do not expand scope.
+   ```
+
+   Then dispatch with the runtime-appropriate spawner:
+   - Codex: spawn exactly one worker sub-agent for the claimed task when `spawn_agent` is available. Set the worker model to the best available Codex model unless the user explicitly requested a different model, cheaper mode, faster mode, or runtime default. Tell the worker it is not alone in the codebase and must not mark the source done, close the goal, or send notifications.
+   - Claude Code: use Claude Code's native sub-agent/task-worker mechanism (e.g. the Agent tool) with the same boundaries. Use the `opus` model alias or the best available Claude Code model, and set `CLAUDE_CODE_SUBAGENT_MODEL=opus` when that environment control is available, unless the user explicitly requested something else. The preamble above is the substitute for `/goal` since sub-agents cannot run slash commands.
    - Hermes: use `--runtime hermes` or an equivalent Hermes one-shot `hermes chat -q` worker command. Default model selection to the best available model when the runtime accepts a model flag, and preload Hermes skills with `--hermes-skill` when needed.
    - OpenClaw: use `--runtime openclaw --openclaw-agent <name>` or `OPENCLAW_AGENT=<name>` so each claimed task is sent as one OpenClaw agent turn. Use the configured best OpenClaw model and default to `--thinking xhigh` unless the user explicitly requested another thinking level.
    - Headless watcher mode: treat the configured `TODO_SKILL_AGENT_CMD` or `--agent-command` invocation as the worker boundary; that worker must create a sub-agent when its runtime supports one.
@@ -129,7 +156,10 @@ python3 skills/get-shit-done/scripts/handoff_report.py --status done --task '<ta
 python3 skills/get-shit-done/scripts/todo_source.py mark --config config/todo_sources.json --item-id '<item-id>' --status done
 ```
 
-14. Close the active task goal:
+14. Close the active task goal in the runtime, then write the fallback file:
+   - Codex: call `close_goal` with the completion summary.
+   - Claude Code: call `TaskUpdate(taskId, status: "completed")` for the per-task goal you opened in Step 6. This is Claude Code's `close_goal` analog. For blocked/needs_human outcomes, still mark `completed` so the goal row clears, and capture the actual outcome in the handoff report + ledger row.
+   - Hermes / OpenClaw / generic: nothing runtime-specific; the fallback file write below is sufficient.
 
 ```bash
 python3 skills/get-shit-done/scripts/goal_state.py close --status done --summary '<result>' --verification '<verification>'
@@ -162,7 +192,13 @@ python3 skills/get-shit-done/scripts/todo_source.py mark --config config/todo_so
 python3 skills/get-shit-done/scripts/notify.py needs_human --config config/notifications.json --task '<task>' --body '<exact blocker or question>'
 ```
 
-19. Repeat from step 3 until no actionable item remains. If a continuous watcher is running, sleep for the configured interval, then drain again.
+19. Repeat from step 3 until no actionable item remains. When the queue is empty, close the overarching drain goal so a future invocation starts clean. In Codex call `close_goal`. In Claude Code call `TaskUpdate(drainTaskId, status: "completed")` on the parent drain task you opened in Step 2 (Claude Code's `close_goal` analog). In any runtime also run:
+
+```bash
+python3 skills/get-shit-done/scripts/goal_state.py close-drain --status done --summary '<count> tasks cleared, <count> blocked'
+```
+
+If a continuous watcher is running, sleep for the configured interval, then drain again. On the next non-empty cycle, re-activate the drain goal via Step 2 before claiming the next todo.
 
 ## Task Selection
 
