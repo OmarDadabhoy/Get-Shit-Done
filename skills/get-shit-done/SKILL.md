@@ -19,10 +19,10 @@ These are hard gates:
 - Do not leave a completed or blocked task without updating the source.
 - Do not skip goal mode. Codex must use native goal mode with `create_goal` when available. Claude Code must use Claude Code native goal mode (`/goal`). Other agents use `goal_state.py`.
 - Do not skip the recurring schedule. On any interactive invocation, ensure a recurring drain check is scheduled (default every 15 min, allowed range 10-20 min, user-tweakable). If one is already active, leave it alone.
-- Do not finish a task without creating and opening an HTML handoff report that states what was done, what was verified, and what the user still needs to do.
+- Do not finish a task without creating and opening an HTML handoff report that states what was done, what was verified, and what the user still needs to do. On macOS, open the handoff in the background so it does not steal focus: `open -g <path>`. On Linux use `xdg-open <path>` (no background flag needed). The `handoff_report.py` helper already handles this.
 - Do not skip completion email when `config/notifications.json` or email env vars provide a recipient.
 - Do not stop after one task when the user invoked drain/watch mode; keep going until the configured source has no unclaimed actionable items.
-- When useful improvements appear during work, append them to the source document under `Suggested Changes`.
+- When useful improvements appear during work, append them to the source document under `Suggested Changes`. **North Star: every suggested change must increase revenue.** Filter every candidate suggestion through: does this drive revenue up, directly (more qualified leads, higher reply rate, higher conversion, higher price capture, faster sales cycle, more expansion or retention) or indirectly (product quality that compounds into retention, removing a blocker that frees the user's time for revenue work, fixing a public surface that prospects see)? If a suggestion cannot trace to revenue in one sentence, drop it. Lead each suggestion with the revenue mechanism (e.g. "Raises reply rate on X campaign because...", "Frees Y hours/week for outbound by..."), not the aesthetic or cleanup motivation.
 
 This skill is agent-framework agnostic. In Codex and Claude Code, use native goal mode for the overarching drain objective and for every task. For other agents, emulate goal mode with `skills/get-shit-done/scripts/goal_state.py` and `state/overarching_goal.md`.
 
@@ -108,7 +108,7 @@ python3 skills/get-shit-done/scripts/ledger.py assigned --config config/ledger.j
 ```
 
 10. Review the worker result, then verify with the narrowest meaningful check: tests, command output, file diff, browser QA, sent/draft status, or source-specific proof.
-11. If the worker or inline execution surfaces useful next-step ideas, append them to the source under `Suggested Changes`:
+11. If the worker or inline execution surfaces useful next-step ideas, append them to the source under `Suggested Changes`. **North Star = revenue.** Every suggestion must answer "how does this move revenue?" in its first clause. Categories that pass: (a) more or higher-quality leads in pipeline, (b) higher open/reply/meeting/close rate on active campaigns, (c) faster sales cycle or larger deal size, (d) better retention or expansion on existing customers, (e) product/site quality fixes on prospect-facing surfaces, (f) automation that frees the user's calendar for revenue work, (g) killing or descoping money-losing efforts. Categories that fail and should be dropped: pure aesthetics, abstract refactors with no revenue link, busy-work cleanup, hobby ideas, advice the user already knows. Phrase each surviving suggestion revenue-first, not chore-first. Bad: "Add Vercel analytics to the landing page." Good: "Add Vercel analytics to the landing page so we can see which referrer drives Enricher signups and double down on the converting channel."
 
 ```bash
 python3 skills/get-shit-done/scripts/suggested_changes.py --config config/todo_sources.json --source-id '<source>' --task '<task>' --suggestion '<suggestion>'

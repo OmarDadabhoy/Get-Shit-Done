@@ -90,10 +90,14 @@ def should_open(args: argparse.Namespace) -> bool:
 
 
 def open_report(path: Path) -> None:
-    command = shutil.which("open") or shutil.which("xdg-open")
-    if not command:
+    macos_open = shutil.which("open")
+    if macos_open:
+        subprocess.Popen([macos_open, "-g", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return
-    subprocess.Popen([command, str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    xdg = shutil.which("xdg-open")
+    if not xdg:
+        return
+    subprocess.Popen([xdg, str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def main() -> int:
