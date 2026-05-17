@@ -1,4 +1,5 @@
 .DS_Store
+/scripts/
 config/*.json
 !config/*.example.json
 state/*.json
@@ -11,3 +12,4 @@ state/overarching_goal.md
 state/completions.md
 __pycache__/
 *.pyc
+logs/
